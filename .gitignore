@@ -1,0 +1,6 @@
+/vendor/
+*.phar
+.env
+*.progress
+*.debug.txt
+box.json
