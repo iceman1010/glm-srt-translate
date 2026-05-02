@@ -7,7 +7,7 @@ class ZAiClient
     private string $apiKey;
     private int $timeout;
 
-    public function __construct(string $apiKey, int $timeout = 300)
+    public function __construct(string $apiKey, int $timeout = 600)
     {
         $this->apiKey = $apiKey;
         $this->timeout = $timeout;
@@ -61,35 +61,37 @@ class ZAiClient
 
         if ($response === false) {
             if (str_contains($curlError, 'timed out') || str_contains($curlError, 'Timeout')) {
-                throw new \RuntimeException("408 Timeout: {$curlError}");
+                throw new \RuntimeException("ZAI_TIMEOUT: {$curlError}");
             }
-            throw new \RuntimeException("cURL error: {$curlError}");
-        }
-
-        if ($httpCode === 429) {
-            $preview = mb_substr($response, 0, 500);
-            throw new \RuntimeException("429 Rate Limited: waiting 60s\nResponse: {$preview}");
-        }
-
-        if ($httpCode === 401 || $httpCode === 403) {
-            $preview = mb_substr($response, 0, 500);
-            throw new \RuntimeException("{$httpCode} Authentication error: {$preview}");
-        }
-
-        if ($httpCode >= 500) {
-            $preview = mb_substr($response, 0, 200);
-            throw new \RuntimeException("{$httpCode} Server error: {$preview}");
+            throw new \RuntimeException("ZAI_CURL_ERROR: {$curlError}");
         }
 
         $data = json_decode($response, true);
+
+        if ($httpCode === 429) {
+            $zaiCode = $data['error']['code'] ?? '';
+            $zaiMsg = $data['error']['message'] ?? '';
+            throw new \RuntimeException("ZAI_RATE_LIMITED: [{$zaiCode}] {$zaiMsg}");
+        }
+
+        if ($httpCode === 401 || $httpCode === 403) {
+            $zaiCode = $data['error']['code'] ?? '';
+            $zaiMsg = $data['error']['message'] ?? mb_substr($response, 0, 200);
+            throw new \RuntimeException("ZAI_AUTH_ERROR: [{$zaiCode}] {$zaiMsg}");
+        }
+
+        if ($httpCode >= 500) {
+            throw new \RuntimeException("ZAI_SERVER_ERROR: HTTP {$httpCode} - " . mb_substr($response, 0, 200));
+        }
+
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException("Failed to parse API response JSON: " . json_last_error_msg());
+            throw new \RuntimeException("ZAI_PARSE_ERROR: " . json_last_error_msg());
         }
 
         if (isset($data['error'])) {
             $errorMsg = $data['error']['message'] ?? json_encode($data['error']);
             $errorCode = $data['error']['code'] ?? $httpCode;
-            throw new \RuntimeException("API error ({$errorCode}): {$errorMsg}");
+            throw new \RuntimeException("ZAI_API_ERROR: [{$errorCode}] {$errorMsg}");
         }
 
         $responseText = $data['choices'][0]['message']['content'] ?? null;

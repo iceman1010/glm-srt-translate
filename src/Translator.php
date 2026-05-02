@@ -200,9 +200,13 @@ class Translator
             );
 
             try {
+                $effectiveBatchCount = $batchEnd - $i;
+                $dynamicMaxTokens = max($this->maxTokens, $effectiveBatchCount * 55);
+                $dynamicMaxTokens = min($dynamicMaxTokens, 131072);
+
                 $clientOptions = [
                     'temperature' => $this->temperature,
-                    'max_tokens' => $this->maxTokens,
+                    'max_tokens' => $dynamicMaxTokens,
                 ];
                 if ($this->enableThinking && ($this->modelConfig['reasoning'] ?? false)) {
                     $clientOptions['thinking'] = true;
@@ -287,41 +291,46 @@ class Translator
                     throw $e;
                 }
 
+                if (str_starts_with($msg, 'ZAI_AUTH_ERROR:')) {
+                    echo "\nAuthentication failed. Check your API key.\n  {$msg}\n";
+                    $this->saveProgress($progressFile, $i, $translations);
+                    throw $e;
+                }
+
+                if (str_starts_with($msg, 'ZAI_RATE_LIMITED:')) {
+                    $this->rateLimitErrors++;
+                    $wait = min(30 * pow(2, $this->rateLimitErrors - 1), 300);
+                    echo " Rate limited (#{$this->rateLimitErrors}). Backing off {$wait}s...\n";
+                    sleep($wait);
+                    continue;
+                }
+
+                $isTimeout = str_starts_with($msg, 'ZAI_TIMEOUT:');
+                $isServerError = str_starts_with($msg, 'ZAI_SERVER_ERROR:');
                 $isJsonError = str_contains($msg, 'JSON') || str_contains($msg, 'Count mismatch');
 
-                if ($isJsonError && isset($responseText)) {
+                if (is_string($responseText ?? null) && $isJsonError) {
                     $debugFile = $this->inputFile . ".{$this->modelKey}.debug.txt";
                     $timestamp = date('H:i:s');
                     $batchInfo = "=== Batch starting at index {$i} @ {$timestamp} ===\n";
                     file_put_contents($debugFile, $batchInfo . $responseText . "\n\n", FILE_APPEND);
                     echo " (raw response appended to {$debugFile})\n";
                 }
-                $isTimeout = str_contains($msg, '408') || str_contains($msg, 'Timeout') || str_contains($msg, 'timed out');
 
-                if ($isJsonError) {
-                    $this->consecutiveErrors++;
-                    echo " JSON error (attempt {$this->consecutiveErrors}/{$this->maxConsecutiveErrors}). Retrying...\n";
-                    sleep(2);
-                } elseif ($isTimeout) {
+                if ($isTimeout) {
                     $this->consecutiveErrors++;
                     $oldBatchSize = $this->batchSize;
                     $this->batchSize = max(1, (int)($this->batchSize * 0.5));
                     echo " Timeout. Batch size: {$oldBatchSize} -> {$this->batchSize}. Retrying...\n";
-                    sleep(5);
-                } elseif (str_contains($msg, '429 Rate Limited')) {
-                    $this->consecutiveErrors++;
-                    $this->rateLimitErrors++;
-                    if (preg_match('/waiting (\d+)/', $msg, $matches)) {
-                        $wait = (int)$matches[1];
-                    } else {
-                        $wait = min(30 * pow(2, $this->rateLimitErrors - 1), 300);
-                    }
-                    echo " Rate limited ({$this->rateLimitErrors} total). Waiting {$wait}s...\n";
-                    sleep((int)$wait);
-                } elseif (str_contains($msg, '500') || str_contains($msg, '503')) {
+                    sleep(10);
+                } elseif ($isServerError) {
                     $this->consecutiveErrors++;
                     echo " Server error. Waiting 60s...\n";
                     sleep(60);
+                } elseif ($isJsonError) {
+                    $this->consecutiveErrors++;
+                    echo " JSON parse error (attempt {$this->consecutiveErrors}/{$this->maxConsecutiveErrors}). Retrying...\n";
+                    sleep(2);
                 } else {
                     $this->consecutiveErrors++;
                     echo " Error: {$msg}\nRetrying...\n";
