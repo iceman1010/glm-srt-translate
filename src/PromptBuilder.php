@@ -80,7 +80,7 @@ class PromptBuilder
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return "Translate to {$langName}. Keep <i>, <b> tags. No comments.\n\nExample:\n[0]:\noriginal text\n\nOutput:\n[0]:\ntranslation";
+        return "Translate to {$langName}. These are movie subtitles — translate naturally and idiomatically, capturing meaning and tone over literal word-for-word. Keep translations concise. Keep <i>, <b> tags. No comments.\n\nExample:\n[0]:\noriginal text\n\nOutput:\n[0]:\ntranslation";
     }
 
     public static function formatBatchAsSimple(array $batch): string
