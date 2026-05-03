@@ -1,0 +1,15 @@
+{
+    "main": "bin/translate",
+    "output": "zai-srt-translate.phar",
+    "directories": ["src"],
+    "files": [
+        "bin/translate",
+        "vendor/autoload.php",
+        "composer.json",
+        "composer.lock",
+        "llm-models.json",
+        "VERSION"
+    ],
+    "exclude-composer-files": false,
+    "force-autodiscovery": true
+}

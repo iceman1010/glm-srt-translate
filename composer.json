@@ -2,6 +2,7 @@
     "name": "opensubtitles/zai-srt-translator",
     "description": "Z.AI LLM SRT subtitle translator",
     "type": "project",
+    "license": "MIT",
     "require": {
         "php": ">=8.1",
         "ext-curl": "*",
@@ -15,8 +16,7 @@
         "psr-4": {
             "ZAiSrt\\": "src/"
         }
-    },
-    "scripts": {
-        "build": "php -dphar.readonly=0 $(composer config home)/vendor/bin/box compile"
+    }
+}
     }
 }

@@ -4,4 +4,3 @@
 .env
 *.progress
 *.debug.txt
-box.json

@@ -1,0 +1,93 @@
+name: Build PHAR & Create Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, curl
+        tools: composer
+
+    - name: Get Composer cache directory
+      id: composer-cache
+      run: echo "dir=$(composer config cache-dir)" >> $GITHUB_OUTPUT
+
+    - name: Cache Composer dependencies
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.composer-cache.outputs.dir }}
+        key: composer-${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
+        restore-keys: composer-${{ runner.os }}-
+
+    - name: Install dependencies
+      run: composer install --prefer-dist --no-progress --optimize-autoloader
+
+    - name: Install box
+      run: |
+        curl -sL https://github.com/box-project/box/releases/download/4.5.1/box.phar -o box.phar
+        chmod +x box.phar
+
+    - name: Get version from VERSION file
+      id: version
+      run: |
+        VERSION=$(cat VERSION | tr -d ' \t\n\r')
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version detected: $VERSION"
+
+    - name: Compile PHAR
+      run: php box.phar compile --allow-composer-check-failure
+
+    - name: Verify PHAR
+      run: php zai-srt-translate.phar --version
+
+    - name: Create Release & Upload PHAR
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.version.outputs.VERSION }}
+        name: zai-srt-translate v${{ steps.version.outputs.VERSION }}
+        body: |
+          zai-srt-translate v${{ steps.version.outputs.VERSION }}
+
+          ### Installation
+          Download the `zai-srt-translate.phar` file and make it executable:
+          ```bash
+          chmod +x zai-srt-translate.phar
+          sudo mv zai-srt-translate.phar /usr/local/bin/zai-srt-translate
+          ```
+
+          ### Usage
+          ```bash
+          zai-srt-translate --input=file.srt --language=German
+          ```
+
+          ### Changes
+          See commit history: https://github.com/${{ github.repository }}/commits/main
+        files: zai-srt-translate.phar
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload PHAR as artifact (for PRs)
+      uses: actions/upload-artifact@v4
+      with:
+        name: zai-srt-translate-phar
+        path: zai-srt-translate.phar
+        retention-days: 30
