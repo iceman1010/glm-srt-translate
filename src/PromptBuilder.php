@@ -80,7 +80,7 @@ class PromptBuilder
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return "Translate to {$langName}. Output format:\n[N]:\ntranslation\nKeep <i>, <b> tags. No comments.";
+        return "Translate to {$langName}. Keep <i>, <b> tags. No comments.\n\nExample:\n[0]:\noriginal text\n\nOutput:\n[0]:\ntranslation";
     }
 
     public static function formatBatchAsSimple(array $batch): string
