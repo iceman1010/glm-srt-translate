@@ -312,6 +312,7 @@ class Translator
 
                 $isTimeout = str_starts_with($msg, 'ZAI_TIMEOUT:');
                 $isServerError = str_starts_with($msg, 'ZAI_SERVER_ERROR:');
+                $isReasoningOnly = str_starts_with($msg, 'ZAI_REASONING_ONLY:');
                 $isJsonError = str_contains($msg, 'JSON') || str_contains($msg, 'Count mismatch');
 
                 if (is_string($responseText ?? null) && $isJsonError) {
@@ -332,6 +333,24 @@ class Translator
                     $this->consecutiveErrors++;
                     echo " Server error. Waiting 60s...\n";
                     sleep(60);
+                } elseif ($isReasoningOnly) {
+                    $this->consecutiveErrors++;
+                    $reasoningDetail = substr($msg, strlen('ZAI_REASONING_ONLY: '));
+                    echo " Reasoning-only response (attempt {$this->consecutiveErrors}/{$this->maxConsecutiveErrors}).\n";
+                    if ($this->debugMode) {
+                        echo "  --- Reasoning output ---\n";
+                        $lines = explode("\n", $reasoningDetail);
+                        foreach (array_slice($lines, 0, 20) as $rl) {
+                            echo "  {$rl}\n";
+                        }
+                        if (count($lines) > 20) {
+                            echo "  ... (" . count($lines) . " lines total)\n";
+                        }
+                        echo "  --- End reasoning ---\n";
+                    } else {
+                        echo "  Run with -v (debug) to see reasoning output.\n";
+                    }
+                    sleep(5);
                 } elseif ($isJsonError) {
                     $this->consecutiveErrors++;
                     echo " JSON parse error (attempt {$this->consecutiveErrors}/{$this->maxConsecutiveErrors}). Retrying...\n";
@@ -486,6 +505,7 @@ class Translator
 
                 $isTimeout = str_starts_with($msg, 'ZAI_TIMEOUT:');
                 $isServerError = str_starts_with($msg, 'ZAI_SERVER_ERROR:');
+                $isReasoningOnly = str_starts_with($msg, 'ZAI_REASONING_ONLY:');
 
                 if ($isTimeout || $isServerError) {
                     echo " " . ($isTimeout ? "timeout" : "server error") . ". Retrying in 30s...\n";
@@ -494,8 +514,22 @@ class Translator
                     continue;
                 }
 
+                if ($isReasoningOnly && $this->debugMode) {
+                    $reasoningDetail = substr($msg, strlen('ZAI_REASONING_ONLY: '));
+                    echo " reasoning-only response.\n";
+                    echo "  --- Reasoning output ---\n";
+                    $lines = explode("\n", $reasoningDetail);
+                    foreach (array_slice($lines, 0, 20) as $rl) {
+                        echo "  {$rl}\n";
+                    }
+                    if (count($lines) > 20) {
+                        echo "  ... (" . count($lines) . " lines total)\n";
+                    }
+                    echo "  --- End reasoning ---\n";
+                }
+
                 if ($attempt < $maxAttempts) {
-                    echo " failed: {$msg}. Retrying...\n";
+                    echo " failed: " . ($isReasoningOnly ? "reasoning-only, no content" : $msg) . ". Retrying...\n";
                     sleep(5);
                 } else {
                     echo " failed after {$maxAttempts} attempt(s): {$msg}\n";

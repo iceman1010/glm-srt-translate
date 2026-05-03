@@ -99,7 +99,8 @@ class ZAiClient
 
         if ($responseText === null || $responseText === '') {
             if ($reasoningContent) {
-                throw new \RuntimeException("Model returned reasoning only, no content. May need more max_tokens or disable thinking.");
+                $preview = mb_substr($reasoningContent, 0, 500);
+                throw new \RuntimeException("ZAI_REASONING_ONLY: Model returned reasoning only, no content. Reasoning preview: {$preview}");
             }
             $debug = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             throw new \RuntimeException("No response content in API result. Response structure:\n{$debug}");
