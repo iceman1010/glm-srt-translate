@@ -386,74 +386,121 @@ class Translator
         array &$translations,
         string $progressFile
     ): void {
-        $count = count($missingIndexes);
-        echo "  Retrying {$count} missing subtitle(s)...";
+        $remaining = $missingIndexes;
+        $totalMissing = count($remaining);
+        $maxAttempts = max(1, $this->retryCount);
 
-        $retryBatch = [];
-        $retryHtmlMap = [];
-        foreach ($missingIndexes as $idx) {
-            $sub = $internalFormat[$idx];
-            $text = $this->linesToText($sub['lines']);
-            $text = preg_replace('/\[(\S[^]]*)\]/', '[ $1 ]', $text);
-
-            if ($stripHtml) {
-                $retryHtmlMap[(string)$idx] = $this->extractHtmlTags($text);
-                $text = strip_tags($text);
-            }
-
-            $retryBatch[] = [
-                'index' => (string)$idx,
-                'text' => $text,
-            ];
-        }
-
-        $retryUserMessage = PromptBuilder::formatBatchAsSimple($retryBatch);
-        $retryMaxTokens = max(4096, $count * 55);
-
-        try {
-            $response = $this->client->chatCompletion(
-                $this->modelId,
-                $systemPrompt,
-                $retryUserMessage,
-                [
-                    'temperature' => $this->temperature,
-                    'max_tokens' => $retryMaxTokens,
-                ]
-            );
-
-            $responseText = $response['result']['response'] ?? '';
-            $translatedLines = $this->parseSimpleResponse($responseText);
-
-            $retryValidation = $this->validateBatch($translatedLines, $retryBatch);
-            $recovered = 0;
-            foreach ($retryValidation['valid'] as $line) {
-                $idx = (int)$line['index'];
-                $text = $line['text'];
-                $text = preg_replace('/\[ (.*?) \]/', '[$1]', $text);
-
-                if ($stripHtml && isset($retryHtmlMap[(string)$idx])) {
-                    $text = $this->reinsertHtmlTags($text, $retryHtmlMap[(string)$idx]);
-                }
-
-                if ($this->isDominantRtl($text)) {
-                    $text = "\u{202B}" . $text . "\u{202C}";
-                }
-
-                $translatedFormat[$idx]['lines'] = $this->textToLines($text);
-                $translations[$idx] = $text;
-                $recovered++;
-            }
-
-            $this->saveProgress($progressFile, max(array_keys($translations)) + 1, $translations);
-            $stillMissing = $count - $recovered;
-            if ($stillMissing > 0) {
-                echo " recovered {$recovered}/{$count}, {$stillMissing} still missing.\n";
+        for ($attempt = 1; $attempt <= $maxAttempts && !empty($remaining); $attempt++) {
+            $count = count($remaining);
+            if ($attempt === 1) {
+                echo "  Retrying {$count} missing subtitle(s)...";
             } else {
-                echo " all {$count} recovered.\n";
+                echo "  Retry attempt {$attempt}/{$maxAttempts} for {$count} still missing...";
             }
 
-        } catch (\RuntimeException $e) {
-            echo " retry failed: " . $e->getMessage() . "\n";
+            $retryBatch = [];
+            $retryHtmlMap = [];
+            foreach ($remaining as $idx) {
+                $sub = $internalFormat[$idx];
+                $text = $this->linesToText($sub['lines']);
+                $text = preg_replace('/\[(\S[^]]*)\]/', '[ $1 ]', $text);
+
+                if ($stripHtml) {
+                    $retryHtmlMap[(string)$idx] = $this->extractHtmlTags($text);
+                    $text = strip_tags($text);
+                }
+
+                $retryBatch[] = [
+                    'index' => (string)$idx,
+                    'text' => $text,
+                ];
+            }
+
+            $retryUserMessage = PromptBuilder::formatBatchAsSimple($retryBatch);
+            $retryMaxTokens = max(4096, $count * 55);
+
+            try {
+                $response = $this->client->chatCompletion(
+                    $this->modelId,
+                    $systemPrompt,
+                    $retryUserMessage,
+                    [
+                        'temperature' => $this->temperature,
+                        'max_tokens' => $retryMaxTokens,
+                    ]
+                );
+
+                $responseText = $response['result']['response'] ?? '';
+                $translatedLines = $this->parseSimpleResponse($responseText);
+
+                $retryValidation = $this->validateBatch($translatedLines, $retryBatch);
+                $recovered = 0;
+                $recoveredIndexes = [];
+                foreach ($retryValidation['valid'] as $line) {
+                    $idx = (int)$line['index'];
+                    $text = $line['text'];
+                    $text = preg_replace('/\[ (.*?) \]/', '[$1]', $text);
+
+                    if ($stripHtml && isset($retryHtmlMap[(string)$idx])) {
+                        $text = $this->reinsertHtmlTags($text, $retryHtmlMap[(string)$idx]);
+                    }
+
+                    if ($this->isDominantRtl($text)) {
+                        $text = "\u{202B}" . $text . "\u{202C}";
+                    }
+
+                    $translatedFormat[$idx]['lines'] = $this->textToLines($text);
+                    $translations[$idx] = $text;
+                    $recoveredIndexes[] = $idx;
+                    $recovered++;
+                }
+
+                $this->saveProgress($progressFile, max(array_keys($translations)) + 1, $translations);
+
+                $remaining = array_values(array_diff($remaining, $recoveredIndexes));
+                $stillMissing = count($remaining);
+
+                if ($stillMissing === 0) {
+                    echo " all {$totalMissing} recovered.\n";
+                    return;
+                }
+
+                if ($attempt < $maxAttempts) {
+                    echo " recovered {$recovered}/{$count}, {$stillMissing} still missing. Retrying...\n";
+                    sleep(2);
+                } else {
+                    echo " recovered {$recovered}/{$count}, {$stillMissing} still missing after {$maxAttempts} attempt(s).\n";
+                }
+
+            } catch (\RuntimeException $e) {
+                $msg = $e->getMessage();
+
+                if (str_starts_with($msg, 'ZAI_RATE_LIMITED:')) {
+                    $this->rateLimitErrors++;
+                    $wait = min(30 * pow(2, min($this->rateLimitErrors - 1, 3)), 300);
+                    echo " rate limited (#{$this->rateLimitErrors}). Backing off {$wait}s...\n";
+                    sleep($wait);
+                    $attempt--;
+                    continue;
+                }
+
+                $isTimeout = str_starts_with($msg, 'ZAI_TIMEOUT:');
+                $isServerError = str_starts_with($msg, 'ZAI_SERVER_ERROR:');
+
+                if ($isTimeout || $isServerError) {
+                    echo " " . ($isTimeout ? "timeout" : "server error") . ". Retrying in 30s...\n";
+                    sleep(30);
+                    $attempt--;
+                    continue;
+                }
+
+                if ($attempt < $maxAttempts) {
+                    echo " failed: {$msg}. Retrying...\n";
+                    sleep(5);
+                } else {
+                    echo " failed after {$maxAttempts} attempt(s): {$msg}\n";
+                }
+            }
         }
     }
 

@@ -4,3 +4,4 @@
 .env
 *.progress
 *.debug.txt
+reference_project/*
