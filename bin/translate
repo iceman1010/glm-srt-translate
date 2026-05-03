@@ -22,6 +22,7 @@ $longOpts = [
     'description::',
     'think',
     'retry::',
+    'restart',
     'list-models',
     'list-languages',
     'update',
@@ -298,6 +299,7 @@ if (empty($options['input']) || empty($options['language'])) {
     echo "  -d <text>   --description=<text>     Additional context for translation\n";
     echo "  -r          --think                  Enable reasoning for reasoning models\n";
     echo "  -R <n>      --retry=<n>              Number of retries on merged content (default: 1)\n";
+echo "              --restart                 Start from beginning, ignore saved progress\n";
 echo "  -f <fmt>    --format=<fmt>            Response format: json|simple (default: simple)\n";
 echo "  -D <secs>   --delay=<secs>            Delay between batches in seconds (default: 2)\n";
 echo "  -v          --debug                 Show system prompt and first user message\n";
@@ -374,6 +376,7 @@ try {
         'description' => $options['description'] ?? null,
         'think' => isset($options['think']),
         'retry' => isset($options['retry']) ? (int)$options['retry'] : 1,
+        'restart' => isset($options['restart']),
         'format' => $options['format'] ?? 'simple',
         'delay' => isset($options['delay']) ? (int)$options['delay'] : 2,
         'debug' => isset($options['debug']),

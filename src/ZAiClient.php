@@ -35,8 +35,12 @@ class ZAiClient
         if (isset($options['max_tokens'])) {
             $body['max_tokens'] = $options['max_tokens'];
         }
-        if (isset($options['thinking']) && $options['thinking']) {
-            $body['thinking'] = ['type' => 'enabled'];
+        if (isset($options['thinking'])) {
+            if ($options['thinking']) {
+                $body['thinking'] = ['type' => 'enabled'];
+            } else {
+                $body['thinking'] = ['type' => 'disabled'];
+            }
         }
 
         $jsonBody = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

@@ -38,6 +38,7 @@ class Translator
     private int $qualityIssues = 0;
     private int $retryCount = 1;
     private int $currentRetry = 0;
+    private bool $restartMode = false;
     private int $batchDelay;
 
     public function __construct(array $options)
@@ -72,6 +73,7 @@ class Translator
         }
         $this->debugMode = $options['debug'] ?? false;
         $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 2) ? reset($options['delay'] ?? 2) : $options['delay'] ?? 2));
+        $this->restartMode = $options['restart'] ?? false;
 
         if (isset($options['output_file'])) {
             $this->outputFile = is_array($options['output_file']) ? reset($options['output_file']) : $options['output_file'];
@@ -125,25 +127,30 @@ class Translator
         $progressData = null;
 
         if (file_exists($progressFile)) {
-            $progressData = json_decode(file_get_contents($progressFile), true);
-            $isValidProgress = false;
-            if ($progressData && isset($progressData['index'])) {
-                $modelMatch = ($progressData['model'] ?? '') === $this->modelKey;
-                $langMatch = ($progressData['target_language'] ?? '') === $this->targetLanguage;
-                if ($modelMatch && $langMatch) {
-                    $isValidProgress = true;
-                    $startIndex = $progressData['index'];
-                    if (isset($progressData['translations'])) {
-                        foreach ($progressData['translations'] as $idx => $text) {
-                            $translatedFormat[$idx]['lines'] = $this->textToLines($text);
-                        }
-                    }
-                    echo "Resuming from subtitle {$startIndex}/{$total}\n";
-                }
-            }
-            if (!$isValidProgress) {
+            if ($this->restartMode) {
                 unlink($progressFile);
-                echo "Progress file cleared (job parameters changed).\n";
+                echo "Progress file cleared (--restart).\n";
+            } else {
+                $progressData = json_decode(file_get_contents($progressFile), true);
+                $isValidProgress = false;
+                if ($progressData && isset($progressData['index'])) {
+                    $modelMatch = ($progressData['model'] ?? '') === $this->modelKey;
+                    $langMatch = ($progressData['target_language'] ?? '') === $this->targetLanguage;
+                    if ($modelMatch && $langMatch) {
+                        $isValidProgress = true;
+                        $startIndex = $progressData['index'];
+                        if (isset($progressData['translations'])) {
+                            foreach ($progressData['translations'] as $idx => $text) {
+                                $translatedFormat[$idx]['lines'] = $this->textToLines($text);
+                            }
+                        }
+                        echo "Resuming from subtitle {$startIndex}/{$total}\n";
+                    }
+                }
+                if (!$isValidProgress) {
+                    unlink($progressFile);
+                    echo "Progress file cleared (job parameters changed).\n";
+                }
             }
         }
 
@@ -210,8 +217,8 @@ class Translator
                     'temperature' => $this->temperature,
                     'max_tokens' => $dynamicMaxTokens,
                 ];
-                if ($this->enableThinking && ($this->modelConfig['reasoning'] ?? false)) {
-                    $clientOptions['thinking'] = true;
+                if ($this->modelConfig['reasoning'] ?? false) {
+                    $clientOptions['thinking'] = $this->enableThinking;
                 }
 
                 $response = $this->client->chatCompletion(
