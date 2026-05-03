@@ -77,7 +77,7 @@ class Translator
             throw new \RuntimeException("Invalid format: {$this->responseFormat}. Must be 'json' or 'simple'.");
         }
         $this->debugMode = $options['debug'] ?? false;
-        $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 2) ? reset($options['delay'] ?? 2) : $options['delay'] ?? 2));
+        $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 60) ? reset($options['delay'] ?? 60) : $options['delay'] ?? 60));
         $this->originalDelay = $this->batchDelay;
         $this->restartMode = $options['restart'] ?? false;
 

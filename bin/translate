@@ -303,7 +303,7 @@ if (empty($options['input']) || empty($options['language'])) {
     echo "  -R <n>      --retry=<n>              Number of retries on merged content (default: 1)\n";
 echo "              --restart                 Start from beginning, ignore saved progress\n";
 echo "  -f <fmt>    --format=<fmt>            Response format: json|simple (default: simple)\n";
-echo "  -D <secs>   --delay=<secs>            Delay between batches in seconds (default: 2)\n";
+echo "  -D <secs>   --delay=<secs>            Delay between batches in seconds (default: 60)\n";
 echo "  -L <file>   --log=<file>              Log full request/response to file for debugging\n";
 echo "  -v          --debug                 Show system prompt and first user message\n";
     exit(1);
@@ -381,7 +381,7 @@ try {
         'retry' => isset($options['retry']) ? (int)$options['retry'] : 1,
         'restart' => isset($options['restart']),
         'format' => $options['format'] ?? 'simple',
-        'delay' => isset($options['delay']) ? (int)$options['delay'] : 2,
+        'delay' => isset($options['delay']) ? (int)$options['delay'] : 60,
         'log' => $options['log'] ?? null,
         'debug' => isset($options['debug']),
     ]);
