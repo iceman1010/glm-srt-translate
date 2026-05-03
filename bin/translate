@@ -97,15 +97,17 @@ if (isset($options['setup-api'])) {
     }
 
     $maxAttempts = 3;
+    $apiKeyId = '';
     $apiKey = '';
 
     for ($i = 0; $i < $maxAttempts; $i++) {
+        $apiKeyId = trim(readline("Z.AI API Key ID: "));
         $apiKey = trim(readline("Z.AI API Key: "));
 
-        if (!empty($apiKey)) {
+        if (!empty($apiKeyId) && !empty($apiKey)) {
             break;
         }
-        echo "API key is required. Please try again.\n\n";
+        echo "Both fields are required. Please try again.\n\n";
         if ($i === $maxAttempts - 1) {
             echo "Error: Too many invalid attempts.\n";
             exit(1);
@@ -119,7 +121,7 @@ if (isset($options['setup-api'])) {
         }
     }
 
-    $content = "ZAI_API_KEY={$apiKey}\n";
+    $content = "ZAI_API_KEY_ID={$apiKeyId}\nZAI_API_KEY={$apiKey}\n";
     if (file_put_contents($globalEnv, $content) === false) {
         echo "Error: Cannot write to {$globalEnv}\n";
         exit(1);
@@ -250,24 +252,29 @@ if (isset($options['update'])) {
     exit(0);
 }
 
-if (empty(getenv('ZAI_API_KEY'))) {
-    $envDir = str_starts_with(__DIR__, 'phar://') ? getcwd() : dirname(__DIR__);
-    $loaded = false;
+if (empty($_ENV['ZAI_API_KEY'] ?? null)) {
+    $envSources = [];
 
+    $envDir = str_starts_with(__DIR__, 'phar://') ? getcwd() : dirname(__DIR__);
     if (file_exists($envDir . '/.env')) {
-        Dotenv::createImmutable($envDir)->load();
-        $loaded = true;
+        $envSources[] = $envDir;
     }
-    if (!$loaded) {
-        $globalEnv = getenv('HOME') . '/.zai-srt-translate/.env';
-        if (file_exists($globalEnv)) {
-            Dotenv::createImmutable(dirname($globalEnv))->load();
-            $loaded = true;
+
+    $globalEnvDir = getenv('HOME') . '/.zai-srt-translate';
+    if (file_exists($globalEnvDir . '/.env')) {
+        $envSources[] = $globalEnvDir;
+    }
+
+    foreach ($envSources as $dir) {
+        Dotenv::createImmutable($dir)->load();
+        if (!empty($_ENV['ZAI_API_KEY'])) {
+            break;
         }
     }
-    if (!$loaded) {
+
+    if (empty($_ENV['ZAI_API_KEY'])) {
         echo "Error: Z.AI API key not found.\n";
-        echo "Run: php " . (Phar::running(false) ?: 'translate.php') . " --setup-api\n";
+        echo "Run: zai-srt-translate --setup-api\n";
         exit(1);
     }
 }
