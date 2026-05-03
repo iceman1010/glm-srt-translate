@@ -38,6 +38,7 @@ class Translator
     private int $qualityIssues = 0;
     private int $retryCount = 1;
     private int $currentRetry = 0;
+    private int $batchDelay;
 
     public function __construct(array $options)
     {
@@ -70,6 +71,7 @@ class Translator
             throw new \RuntimeException("Invalid format: {$this->responseFormat}. Must be 'json' or 'simple'.");
         }
         $this->debugMode = $options['debug'] ?? false;
+        $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 2) ? reset($options['delay'] ?? 2) : $options['delay'] ?? 2));
 
         if (isset($options['output_file'])) {
             $this->outputFile = is_array($options['output_file']) ? reset($options['output_file']) : $options['output_file'];
@@ -286,6 +288,10 @@ class Translator
                 $missingIndexes = $validation['missingIndexes'] ?? [];
                 if (!empty($missingIndexes) && count($missingIndexes) < $validation['expectedCount']) {
                     $this->retryMissing($missingIndexes, $internalFormat, $systemPrompt, $stripHtml, $translatedFormat, $translations, $progressFile);
+                }
+
+                if ($this->batchDelay > 0 && $i < $total) {
+                    sleep($this->batchDelay);
                 }
 
             } catch (\RuntimeException $e) {

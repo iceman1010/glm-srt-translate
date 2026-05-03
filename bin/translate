@@ -10,7 +10,7 @@ use WhiteCube\Lingua\Service as Lingua;
 $versionFile = __DIR__ . '/../VERSION';
 define('VERSION', trim(file_exists($versionFile) ? file_get_contents($versionFile) : 'dev'));
 
-$shortOpts = 'i:o:l:m:b:t:M:drR:f:v';
+$shortOpts = 'i:o:l:m:b:t:M:drR:f:vD:';
 $longOpts = [
     'input:',
     'output::',
@@ -28,6 +28,7 @@ $longOpts = [
     'setup-api',
     'version',
     'format:',
+    'delay::',
     'debug',
 ];
 $options = getopt($shortOpts, $longOpts);
@@ -45,6 +46,7 @@ $shortToLong = [
     'R' => 'retry',
     'f' => 'format',
     'v' => 'debug',
+    'D' => 'delay',
 ];
 foreach ($shortToLong as $short => $long) {
     if (isset($options[$short])) {
@@ -296,8 +298,9 @@ if (empty($options['input']) || empty($options['language'])) {
     echo "  -d <text>   --description=<text>     Additional context for translation\n";
     echo "  -r          --think                  Enable reasoning for reasoning models\n";
     echo "  -R <n>      --retry=<n>              Number of retries on merged content (default: 1)\n";
-    echo "  -f <fmt>    --format=<fmt>            Response format: json|simple (default: simple)\n";
-    echo "  -v          --debug                 Show system prompt and first user message\n";
+echo "  -f <fmt>    --format=<fmt>            Response format: json|simple (default: simple)\n";
+echo "  -D <secs>   --delay=<secs>            Delay between batches in seconds (default: 2)\n";
+echo "  -v          --debug                 Show system prompt and first user message\n";
     exit(1);
 }
 
@@ -372,6 +375,7 @@ try {
         'think' => isset($options['think']),
         'retry' => isset($options['retry']) ? (int)$options['retry'] : 1,
         'format' => $options['format'] ?? 'simple',
+        'delay' => isset($options['delay']) ? (int)$options['delay'] : 2,
         'debug' => isset($options['debug']),
     ]);
 
