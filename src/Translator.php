@@ -303,7 +303,14 @@ class Translator
 
                 $missingIndexes = $validation['missingIndexes'] ?? [];
                 if (!empty($missingIndexes) && count($missingIndexes) < $validation['expectedCount']) {
-                    $this->retryMissing($missingIndexes, $internalFormat, $systemPrompt, $stripHtml, $translatedFormat, $translations, $progressFile);
+                    $stillMissing = $this->retryMissing($missingIndexes, $internalFormat, $systemPrompt, $stripHtml, $translatedFormat, $translations, $progressFile);
+                    if (!empty($stillMissing)) {
+                        $minMissing = min($stillMissing);
+                        if ($minMissing < $i) {
+                            $i = $minMissing;
+                            echo "  " . count($stillMissing) . " subtitle(s) still missing, will retry in next batch starting at {$i}.\n";
+                        }
+                    }
                 }
 
             } catch (\RuntimeException $e) {
@@ -430,10 +437,10 @@ class Translator
         array &$translatedFormat,
         array &$translations,
         string $progressFile
-    ): void {
+    ): array {
         $remaining = $missingIndexes;
         $totalMissing = count($remaining);
-        $maxAttempts = max(1, $this->retryCount);
+        $maxAttempts = max(3, $this->retryCount * 3);
 
         for ($attempt = 1; $attempt <= $maxAttempts && !empty($remaining); $attempt++) {
             $count = count($remaining);
@@ -511,7 +518,7 @@ class Translator
 
                 if ($stillMissing === 0) {
                     echo " all {$totalMissing} recovered.\n";
-                    return;
+                    return [];
                 }
 
                 if ($attempt < $maxAttempts) {
@@ -568,6 +575,8 @@ class Translator
                 }
             }
         }
+
+        return $remaining;
     }
 
     private function extractJson(string $text): array
