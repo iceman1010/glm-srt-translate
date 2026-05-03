@@ -73,31 +73,14 @@ class PromptBuilder
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return <<<PROMPT
-Translate subtitles to {$langName}.
-
-Rules:
-- Translate word-for-word meaning, preserving style and tone
-- Keep HTML tags like <i>, </i>, <b>, </b> exactly as they appear
-- Translate text inside [ ] brackets (sound effects)
-- No explanations or comments
-- Return JSON array: [{"index":"0","text":"translation"},{"index":"1","text":"translation"}]
-PROMPT;
+        return "Translate to {$langName}. Output JSON: [{\"index\":\"0\",\"text\":\"...\"}]. Keep <i>, <b> tags. No comments.";
     }
 
     public static function buildSimpleSystemPrompt(string $targetLanguage): string
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return <<<PROMPT
-Translate subtitles to {$langName}.
-
-Format: [N]: followed by translation on next line.
-- Translate word-for-word, preserve style and tone
-- Keep HTML tags like <i>, </i>, <b>, </b> as-is
-- Translate text inside [ ] brackets (sound effects)
-- No explanations, no JSON, just plain text
-PROMPT;
+        return "Translate to {$langName}. Output format:\n[N]:\ntranslation\nKeep <i>, <b> tags. No comments.";
     }
 
     public static function formatBatchAsSimple(array $batch): string

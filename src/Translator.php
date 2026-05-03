@@ -474,14 +474,19 @@ class Translator
             try {
                 $this->enforceMinInterval();
 
+                $retryOptions = [
+                    'temperature' => $this->temperature,
+                    'max_tokens' => $retryMaxTokens,
+                ];
+                if ($this->modelConfig['reasoning'] ?? false) {
+                    $retryOptions['thinking'] = $this->enableThinking;
+                }
+
                 $response = $this->client->chatCompletion(
                     $this->modelId,
                     $systemPrompt,
                     $retryUserMessage,
-                    [
-                        'temperature' => $this->temperature,
-                        'max_tokens' => $retryMaxTokens,
-                    ]
+                    $retryOptions
                 );
 
                 $this->lastRequestTime = microtime(true);
