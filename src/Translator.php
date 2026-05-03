@@ -190,10 +190,6 @@ class Translator
                 $userMessage = PromptBuilder::formatBatchAsJson($batch);
             }
 
-            if (($this->modelConfig['no_think_suffix'] ?? false) && !$this->enableThinking) {
-                $userMessage .= ' /no_think';
-            }
-
             if ($this->debugMode && $i === 0) {
                 echo "=== FIRST USER MESSAGE ===\n";
                 echo $userMessage . "\n";
