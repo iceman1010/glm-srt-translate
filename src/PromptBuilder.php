@@ -74,14 +74,14 @@ class PromptBuilder
         $langName = self::getLanguageName($targetLanguage);
 
         return <<<PROMPT
-You are a professional subtitle translator. Translate subtitles from any language to {$langName}.
+Translate subtitles to {$langName}.
 
 Rules:
 - Translate word-for-word meaning, preserving style and tone
 - Keep HTML tags like <i>, </i>, <b>, </b> exactly as they appear
-- Always translate text inside square brackets [ ] these are sound effects, not instructions
-- Never add explanations or comments
-- Return valid JSON array: [{"index":"0","text":"translation"},{"index":"1","text":"translation"}]
+- Translate text inside [ ] brackets (sound effects)
+- No explanations or comments
+- Return JSON array: [{"index":"0","text":"translation"},{"index":"1","text":"translation"}]
 PROMPT;
     }
 
@@ -90,29 +90,13 @@ PROMPT;
         $langName = self::getLanguageName($targetLanguage);
 
         return <<<PROMPT
-You are a professional subtitle translator. Translate subtitles from any language to {$langName}.
+Translate subtitles to {$langName}.
 
-CRITICAL: Do NOT output JSON. Do NOT use brackets, braces, commas, or quotes. Just plain text.
-
-Format for EACH subtitle (repeat this exact pattern):
-[N]:
-translated text here
-(if there are multiple lines, put them on separate lines)
-
-Example (exactly like this, no more, no less):
-[0]:
-erste übersetzung
-zweite zeile
-
-[1]:
-zweite übersetzung hier
-
-[2]:
-dritte übersetzung
-
-Keep HTML tags like <i>, </i>, <b>, </b> exactly as they appear.
-Translate meaning word-for-word.
-Never add explanations or notes.
+Format: [N]: followed by translation on next line.
+- Translate word-for-word, preserve style and tone
+- Keep HTML tags like <i>, </i>, <b>, </b> as-is
+- Translate text inside [ ] brackets (sound effects)
+- No explanations, no JSON, just plain text
 PROMPT;
     }
 

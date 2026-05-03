@@ -41,7 +41,9 @@ class Translator
     private bool $restartMode = false;
     private int $batchDelay;
     private int $originalBatchSize;
+    private int $originalDelay;
     private int $consecutiveSuccesses = 0;
+    private float $lastRequestTime = 0.0;
 
     public function __construct(array $options)
     {
@@ -76,6 +78,7 @@ class Translator
         }
         $this->debugMode = $options['debug'] ?? false;
         $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 2) ? reset($options['delay'] ?? 2) : $options['delay'] ?? 2));
+        $this->originalDelay = $this->batchDelay;
         $this->restartMode = $options['restart'] ?? false;
 
         if (isset($options['output_file'])) {
@@ -209,6 +212,8 @@ class Translator
             );
 
             try {
+                $this->enforceMinInterval();
+
                 $effectiveBatchCount = $batchEnd - $i;
                 $dynamicMaxTokens = max($this->maxTokens, $effectiveBatchCount * 55);
                 $dynamicMaxTokens = min($dynamicMaxTokens, 131072);
@@ -227,6 +232,8 @@ class Translator
                     $userMessage,
                     $clientOptions
                 );
+
+                $this->lastRequestTime = microtime(true);
 
                 $responseText = $response['result']['response'] ?? '';
 
@@ -298,10 +305,18 @@ class Translator
                     $oldBatch = $this->batchSize;
                     $increase = max(1, (int)ceil($this->batchSize * 0.1));
                     $this->batchSize = min($this->batchSize + $increase, $this->originalBatchSize);
-                    echo " (batch {$oldBatch}→{$this->batchSize}, {$this->consecutiveSuccesses} successes)";
+                    echo " (batch {$oldBatch}→{$this->batchSize})";
                     $this->consecutiveSuccesses = 0;
                 } elseif ($this->debugMode && $this->batchSize < $this->originalBatchSize) {
                     echo " (batch {$this->batchSize}/{$this->originalBatchSize}, {$this->consecutiveSuccesses}/3 successes)";
+                }
+
+                if ($this->consecutiveSuccesses >= 5 && $this->batchDelay > $this->originalDelay) {
+                    $this->batchDelay = max($this->originalDelay, $this->batchDelay - 5);
+                    if ($this->debugMode) {
+                        echo " (delay→{$this->batchDelay}s)";
+                    }
+                    $this->consecutiveSuccesses = 0;
                 }
 
                 echo " Done.\n";
@@ -309,10 +324,6 @@ class Translator
                 $missingIndexes = $validation['missingIndexes'] ?? [];
                 if (!empty($missingIndexes) && count($missingIndexes) < $validation['expectedCount']) {
                     $this->retryMissing($missingIndexes, $internalFormat, $systemPrompt, $stripHtml, $translatedFormat, $translations, $progressFile);
-                }
-
-                if ($this->batchDelay > 0 && $i < $total) {
-                    sleep($this->batchDelay);
                 }
 
             } catch (\RuntimeException $e) {
@@ -332,15 +343,13 @@ class Translator
                 if (str_starts_with($msg, 'ZAI_RATE_LIMITED:')) {
                     $this->rateLimitErrors++;
                     $this->consecutiveSuccesses = 0;
-                    $oldBatchSize = $this->batchSize;
-                    $this->batchSize = max(1, (int)($this->batchSize * 0.5));
+                    $this->batchDelay = min($this->batchDelay + 5, 120);
+                    $this->lastRequestTime = microtime(true);
                     $wait = min(30 * pow(2, $this->rateLimitErrors - 1), 300);
                     echo " Rate limited (#{$this->rateLimitErrors}). Backing off {$wait}s...\n";
                     if ($this->debugMode) {
                         echo "  API response: " . substr($msg, strlen('ZAI_RATE_LIMITED: ')) . "\n";
-                        if ($this->batchSize !== $oldBatchSize) {
-                            echo "  Batch size: {$oldBatchSize} → {$this->batchSize} (reduced 50%)\n";
-                        }
+                        echo "  Delay increased to {$this->batchDelay}s between batches\n";
                     }
                     sleep($wait);
                     continue;
@@ -481,6 +490,8 @@ class Translator
             $retryMaxTokens = max(4096, $count * 55);
 
             try {
+                $this->enforceMinInterval();
+
                 $response = $this->client->chatCompletion(
                     $this->modelId,
                     $systemPrompt,
@@ -490,6 +501,8 @@ class Translator
                         'max_tokens' => $retryMaxTokens,
                     ]
                 );
+
+                $this->lastRequestTime = microtime(true);
 
                 $responseText = $response['result']['response'] ?? '';
                 $translatedLines = $this->parseSimpleResponse($responseText);
@@ -528,7 +541,6 @@ class Translator
 
                 if ($attempt < $maxAttempts) {
                     echo " recovered {$recovered}/{$count}, {$stillMissing} still missing. Retrying...\n";
-                    sleep(2);
                 } else {
                     echo " recovered {$recovered}/{$count}, {$stillMissing} still missing after {$maxAttempts} attempt(s).\n";
                 }
@@ -861,6 +873,24 @@ class Translator
     private function linesToText(array $lines): string
     {
         return implode("\n", $lines);
+    }
+
+    private function enforceMinInterval(): void
+    {
+        if ($this->lastRequestTime <= 0) {
+            return;
+        }
+
+        $elapsed = microtime(true) - $this->lastRequestTime;
+        $needed = $this->batchDelay;
+
+        if ($elapsed < $needed) {
+            $wait = ceil($needed - $elapsed);
+            if ($this->debugMode) {
+                echo "  [throttle: {$elapsed}s since last request, waiting {$wait}s]\n";
+            }
+            sleep((int)$wait);
+        }
     }
 
     private function textToLines(string $text): array
