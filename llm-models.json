@@ -12,7 +12,7 @@
             "context_window": 128000,
             "batch_size": 200,
             "reasoning": true,
-            "no_think_suffix": false,
+            "no_think_suffix": true,
             "strip_html": false,
             "languages": ["fr","de","es","pt","it","nl","ru","pl","cs","ro","hu","bg","hr","sk","sl","sr","bs","mk","sq","el","tr","sv","da","no","fi","et","lv","lt","uk","be","ka","hy","is","ga","cy","eu","ca","gl","mt","lb","af","ar","he","fa","ur","hi","bn","ta","te","mr","gu","kn","ml","pa","si","ne","zh","ja","ko","th","vi","id","ms","tl","sw","mn","km","lo","my","az","uz","kk","am","ha","yo","ig","zu","xh","so","mg","rw","sn","ny","ku","ps","sd","tg","tk","ky","tt","ug","jv","su","ceb","mi","sm","haw","yi","eo","la","ht","gd"],
             "notes": "GLM-5.1 flagship model. Reasoning support. 128K context."
@@ -24,7 +24,7 @@
             "context_window": 128000,
             "batch_size": 200,
             "reasoning": true,
-            "no_think_suffix": false,
+            "no_think_suffix": true,
             "strip_html": false,
             "languages": ["fr","de","es","pt","it","nl","ru","pl","cs","ro","hu","bg","hr","sk","sl","sr","bs","mk","sq","el","tr","sv","da","no","fi","et","lv","lt","uk","be","ka","hy","is","ga","cy","eu","ca","gl","mt","lb","af","ar","he","fa","ur","hi","bn","ta","te","mr","gu","kn","ml","pa","si","ne","zh","ja","ko","th","vi","id","ms","tl","sw","mn","km","lo","my","az","uz","kk","am","ha","yo","ig","zu","xh","so","mg","rw","sn","ny","ku","ps","sd","tg","tk","ky","tt","ug","jv","su","ceb","mi","sm","haw","yi","eo","la","ht","gd"],
             "notes": "GLM-5 Turbo. Reasoning support. 128K context."
@@ -36,7 +36,7 @@
             "context_window": 128000,
             "batch_size": 200,
             "reasoning": true,
-            "no_think_suffix": false,
+            "no_think_suffix": true,
             "strip_html": false,
             "languages": ["fr","de","es","pt","it","nl","ru","pl","cs","ro","hu","bg","hr","sk","sl","sr","bs","mk","sq","el","tr","sv","da","no","fi","et","lv","lt","uk","be","ka","hy","is","ga","cy","eu","ca","gl","mt","lb","af","ar","he","fa","ur","hi","bn","ta","te","mr","gu","kn","ml","pa","si","ne","zh","ja","ko","th","vi","id","ms","tl","sw","mn","km","lo","my","az","uz","kk","am","ha","yo","ig","zu","xh","so","mg","rw","sn","ny","ku","ps","sd","tg","tk","ky","tt","ug","jv","su","ceb","mi","sm","haw","yi","eo","la","ht","gd"],
             "notes": "GLM-5. Reasoning support. 128K context."
@@ -48,7 +48,7 @@
             "context_window": 128000,
             "batch_size": 200,
             "reasoning": true,
-            "no_think_suffix": false,
+            "no_think_suffix": true,
             "strip_html": false,
             "languages": ["fr","de","es","pt","it","nl","ru","pl","cs","ro","hu","bg","hr","sk","sl","sr","bs","mk","sq","el","tr","sv","da","no","fi","et","lv","lt","uk","be","ka","hy","is","ga","cy","eu","ca","gl","mt","lb","af","ar","he","fa","ur","hi","bn","ta","te","mr","gu","kn","ml","pa","si","ne","zh","ja","ko","th","vi","id","ms","tl","sw","mn","km","lo","my","az","uz","kk","am","ha","yo","ig","zu","xh","so","mg","rw","sn","ny","ku","ps","sd","tg","tk","ky","tt","ug","jv","su","ceb","mi","sm","haw","yi","eo","la","ht","gd"],
             "notes": "GLM-4.7. Reasoning support. 128K context."
@@ -60,7 +60,7 @@
             "context_window": 128000,
             "batch_size": 250,
             "reasoning": true,
-            "no_think_suffix": false,
+            "no_think_suffix": true,
             "strip_html": false,
             "languages": ["fr","de","es","pt","it","nl","ru","pl","cs","ro","hu","bg","hr","sk","sl","sr","bs","mk","sq","el","tr","sv","da","no","fi","et","lv","lt","uk","be","ka","hy","is","ga","cy","eu","ca","gl","mt","lb","af","ar","he","fa","ur","hi","bn","ta","te","mr","gu","kn","ml","pa","si","ne","zh","ja","ko","th","vi","id","ms","tl","sw","mn","km","lo","my","az","uz","kk","am","ha","yo","ig","zu","xh","so","mg","rw","sn","ny","ku","ps","sd","tg","tk","ky","tt","ug","jv","su","ceb","mi","sm","haw","yi","eo","la","ht","gd"],
             "notes": "GLM-4.7 Flash. Fast model with reasoning. 128K context."

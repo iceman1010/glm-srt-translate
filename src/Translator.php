@@ -283,6 +283,7 @@ class Translator
                 $i = $maxTranslatedIdx;
                 $this->saveProgress($progressFile, $i, $translations);
                 $this->consecutiveErrors = 0;
+                $this->rateLimitErrors = 0;
                 echo " Done.\n";
 
                 $missingIndexes = $validation['missingIndexes'] ?? [];
