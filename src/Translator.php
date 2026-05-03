@@ -195,12 +195,6 @@ class Translator
                 $userMessage = PromptBuilder::formatBatchAsJson($batch);
             }
 
-            if ($this->debugMode && $i === 0) {
-                echo "=== FIRST USER MESSAGE ===\n";
-                echo $userMessage . "\n";
-                echo "=== END USER MESSAGE ===\n\n";
-            }
-
             echo sprintf(
                 "Translating batch %d-%d / %d (%d%%)...",
                 $i + 1,
