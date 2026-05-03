@@ -40,7 +40,6 @@ class Translator
     private int $currentRetry = 0;
     private bool $restartMode = false;
     private int $batchDelay;
-    private int $originalBatchSize;
     private int $originalDelay;
     private int $consecutiveSuccesses = 0;
     private float $lastRequestTime = 0.0;
@@ -67,7 +66,6 @@ class Translator
         $this->modelConfig = $config['models'][$this->modelKey];
         $this->modelId = $this->modelConfig['model_id'];
         $this->batchSize = isset($options['batch_size']) ? (int)(is_array($options['batch_size']) ? reset($options['batch_size']) : $options['batch_size']) : $this->modelConfig['batch_size'];
-        $this->originalBatchSize = $this->batchSize;
         $this->temperature = isset($options['temperature']) ? (float)(is_array($options['temperature']) ? reset($options['temperature']) : $options['temperature']) : $config['api']['default_temperature'];
         $this->maxTokens = isset($options['max_tokens']) ? (int)(is_array($options['max_tokens']) ? reset($options['max_tokens']) : $options['max_tokens']) : $config['api']['default_max_tokens'];
         $this->contextWindow = $this->modelConfig['context_window'];
@@ -265,8 +263,6 @@ class Translator
                 if ($validation['validCount'] < $validation['expectedCount']) {
                     $this->partialBatches++;
                     $partialPrefix = sprintf(" Partial: %d/%d", $validation['validCount'], $validation['expectedCount']);
-                    $this->batchSize = max(1, $validation['validCount']);
-                    $this->consecutiveSuccesses = 0;
                 }
 
                 if (!empty($issues)) {
@@ -300,16 +296,6 @@ class Translator
                 $this->consecutiveErrors = 0;
                 $this->rateLimitErrors = 0;
                 $this->consecutiveSuccesses++;
-
-                if ($this->consecutiveSuccesses >= 3 && $this->batchSize < $this->originalBatchSize) {
-                    $oldBatch = $this->batchSize;
-                    $increase = max(1, (int)ceil($this->batchSize * 0.1));
-                    $this->batchSize = min($this->batchSize + $increase, $this->originalBatchSize);
-                    echo " (batch {$oldBatch}→{$this->batchSize})";
-                    $this->consecutiveSuccesses = 0;
-                } elseif ($this->debugMode && $this->batchSize < $this->originalBatchSize) {
-                    echo " (batch {$this->batchSize}/{$this->originalBatchSize}, {$this->consecutiveSuccesses}/3 successes)";
-                }
 
                 if ($this->consecutiveSuccesses >= 5 && $this->batchDelay > $this->originalDelay) {
                     $this->batchDelay = max($this->originalDelay, $this->batchDelay - 5);
@@ -371,9 +357,7 @@ class Translator
                 if ($isTimeout) {
                     $this->consecutiveErrors++;
                     $this->consecutiveSuccesses = 0;
-                    $oldBatchSize = $this->batchSize;
-                    $this->batchSize = max(1, (int)($this->batchSize * 0.5));
-                    echo " Timeout. Batch size: {$oldBatchSize} -> {$this->batchSize}. Retrying...\n";
+                    echo " Timeout. Retrying...\n";
                     sleep(10);
                 } elseif ($isServerError) {
                     $this->consecutiveErrors++;
@@ -383,12 +367,9 @@ class Translator
                 } elseif ($isReasoningOnly) {
                     $this->consecutiveErrors++;
                     $this->consecutiveSuccesses = 0;
-                    $oldBatchSize = $this->batchSize;
-                    $this->batchSize = max(1, (int)($this->batchSize * 0.75));
                     $reasoningDetail = substr($msg, strlen('ZAI_REASONING_ONLY: '));
                     echo " Reasoning-only response (attempt {$this->consecutiveErrors}/{$this->maxConsecutiveErrors}).\n";
                     if ($this->debugMode) {
-                        echo "  Batch size: {$oldBatchSize} → {$this->batchSize} (reduced 25%)\n";
                         echo "  --- Reasoning output ---\n";
                         $lines = explode("\n", $reasoningDetail);
                         foreach (array_slice($lines, 0, 20) as $rl) {
