@@ -87,7 +87,8 @@ class Translator
                 . '.' . ($pathInfo['extension'] ?? 'srt');
         }
 
-        $this->client = new ZAiClient($this->apiKey);
+        $logFile = isset($options['log']) && $options['log'] ? (string)$options['log'] : null;
+        $this->client = new ZAiClient($this->apiKey, 600, $logFile);
     }
 
     public function translate(): void

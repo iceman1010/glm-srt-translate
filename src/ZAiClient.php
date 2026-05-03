@@ -6,11 +6,13 @@ class ZAiClient
 {
     private string $apiKey;
     private int $timeout;
+    private ?string $logFile;
 
-    public function __construct(string $apiKey, int $timeout = 600)
+    public function __construct(string $apiKey, int $timeout = 600, ?string $logFile = null)
     {
         $this->apiKey = $apiKey;
         $this->timeout = $timeout;
+        $this->logFile = $logFile;
     }
 
     public function chatCompletion(
@@ -45,6 +47,7 @@ class ZAiClient
 
         $jsonBody = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
+        $responseHeaders = '';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -52,16 +55,24 @@ class ZAiClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders) {
+                $responseHeaders .= $header;
+                return strlen($header);
+            },
             CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $this->apiKey,
                 'Content-Type: application/json',
             ],
         ]);
 
+        $startTime = microtime(true);
         $response = curl_exec($ch);
+        $elapsed = round(microtime(true) - $startTime, 3);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
         curl_close($ch);
+
+        $this->logRequest($url, $body, $jsonBody, $httpCode, $responseHeaders, $response, $elapsed, $curlError);
 
         if ($response === false) {
             if (str_contains($curlError, 'timed out') || str_contains($curlError, 'Timeout')) {
@@ -118,5 +129,63 @@ class ZAiClient
                 'choices' => $data['choices'] ?? [],
             ],
         ];
+    }
+
+    private function logRequest(
+        string $url,
+        array $body,
+        string $jsonBody,
+        int $httpCode,
+        string $responseHeaders,
+        $response,
+        float $elapsed,
+        string $curlError
+    ): void {
+        if ($this->logFile === null) {
+            return;
+        }
+
+        $ts = date('Y-m-d H:i:s');
+        $sep = str_repeat('=', 80);
+
+        $logBody = $body;
+        foreach ($logBody['messages'] as &$msg) {
+            if (strlen($msg['content']) > 500) {
+                $msg['content'] = mb_substr($msg['content'], 0, 500) . '... [' . strlen($msg['content']) . ' chars total]';
+            }
+        }
+        unset($msg);
+
+        $out = $sep . "\n";
+        $out .= "[{$ts}] REQUEST\n";
+        $out .= $sep . "\n";
+        $out .= "URL: {$url}\n";
+        $out .= "HTTP Code: {$httpCode}\n";
+        $out .= "Time: {$elapsed}s\n";
+        $out .= "Request body size: " . strlen($jsonBody) . " bytes\n\n";
+        $out .= "--- Request Body (truncated) ---\n";
+        $out .= json_encode($logBody, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n\n";
+        $out .= "--- Response Headers ---\n";
+        $out .= trim($responseHeaders) . "\n";
+
+        if ($curlError) {
+            $out .= "\n--- cURL Error ---\n{$curlError}\n";
+        }
+
+        if (is_string($response)) {
+            $out .= "\n--- Response Body (" . strlen($response) . " bytes) ---\n";
+            $decoded = json_decode($response, true);
+            if ($decoded) {
+                $out .= json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
+            } else {
+                $out .= $response . "\n";
+            }
+        } else {
+            $out .= "\n--- Response: (none) ---\n";
+        }
+
+        $out .= "\n";
+
+        file_put_contents($this->logFile, $out, FILE_APPEND);
     }
 }
