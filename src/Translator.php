@@ -306,6 +306,9 @@ class Translator
                     $this->rateLimitErrors++;
                     $wait = min(30 * pow(2, $this->rateLimitErrors - 1), 300);
                     echo " Rate limited (#{$this->rateLimitErrors}). Backing off {$wait}s...\n";
+                    if ($this->debugMode) {
+                        echo "  API response: " . substr($msg, strlen('ZAI_RATE_LIMITED: ')) . "\n";
+                    }
                     sleep($wait);
                     continue;
                 }
@@ -498,6 +501,9 @@ class Translator
                     $this->rateLimitErrors++;
                     $wait = min(30 * pow(2, min($this->rateLimitErrors - 1, 3)), 300);
                     echo " rate limited (#{$this->rateLimitErrors}). Backing off {$wait}s...\n";
+                    if ($this->debugMode) {
+                        echo "  API response: " . substr($msg, strlen('ZAI_RATE_LIMITED: ')) . "\n";
+                    }
                     sleep($wait);
                     $attempt--;
                     continue;
