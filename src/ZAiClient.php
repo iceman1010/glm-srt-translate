@@ -45,6 +45,12 @@ class ZAiClient
             }
         }
 
+        // When set (e.g. 'json_object'), the API enforces valid JSON output at the
+        // sampler level. This is what makes the JSON subtitle contract reliable.
+        if (isset($options['response_format'])) {
+            $body['response_format'] = ['type' => $options['response_format']];
+        }
+
         $jsonBody = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         $responseHeaders = '';
@@ -86,6 +92,11 @@ class ZAiClient
         if ($httpCode === 429) {
             $zaiCode = $data['error']['code'] ?? '';
             $zaiMsg = $data['error']['message'] ?? '';
+            // code 1113 = insufficient balance / no resource package — NOT a rate
+            // limit. Retrying is pointless; abort so we don't burn time and tokens.
+            if ($zaiCode === '1113' || preg_match('/balance|recharge|resource package/i', $zaiMsg)) {
+                throw new \RuntimeException("ZAI_BALANCE_ERROR: [{$zaiCode}] {$zaiMsg}");
+            }
             throw new \RuntimeException("ZAI_RATE_LIMITED: [{$zaiCode}] {$zaiMsg}");
         }
 

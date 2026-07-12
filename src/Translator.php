@@ -217,6 +217,9 @@ class Translator
                 if ($this->modelConfig['reasoning'] ?? false) {
                     $clientOptions['thinking'] = $this->enableThinking;
                 }
+                if ($this->responseFormat === 'json') {
+                    $clientOptions['response_format'] = 'json_object';
+                }
 
                 $response = $this->client->chatCompletion(
                     $this->modelId,
@@ -323,6 +326,12 @@ class Translator
 
                 if (str_starts_with($msg, 'ZAI_AUTH_ERROR:')) {
                     echo "\nAuthentication failed. Check your API key.\n  {$msg}\n";
+                    $this->saveProgress($progressFile, $i, $translations);
+                    throw $e;
+                }
+
+                if (str_starts_with($msg, 'ZAI_BALANCE_ERROR:')) {
+                    echo "\nFatal: {$msg}\nThis model is unavailable on your account (insufficient balance / no resource package). Recharge or pick another model. Aborting.\n";
                     $this->saveProgress($progressFile, $i, $translations);
                     throw $e;
                 }
@@ -468,7 +477,6 @@ class Translator
                 ];
             }
 
-            $retryUserMessage = PromptBuilder::formatBatchAsSimple($retryBatch);
             $retryMaxTokens = max(4096, $count * 55);
 
             try {
@@ -481,6 +489,12 @@ class Translator
                 if ($this->modelConfig['reasoning'] ?? false) {
                     $retryOptions['thinking'] = $this->enableThinking;
                 }
+                if ($this->responseFormat === 'json') {
+                    $retryUserMessage = PromptBuilder::formatBatchAsJson($retryBatch);
+                    $retryOptions['response_format'] = 'json_object';
+                } else {
+                    $retryUserMessage = PromptBuilder::formatBatchAsSimple($retryBatch);
+                }
 
                 $response = $this->client->chatCompletion(
                     $this->modelId,
@@ -492,7 +506,9 @@ class Translator
                 $this->lastRequestTime = microtime(true);
 
                 $responseText = $response['result']['response'] ?? '';
-                $translatedLines = $this->parseSimpleResponse($responseText);
+                $translatedLines = $this->responseFormat === 'json'
+                    ? $this->extractJson($responseText)
+                    : $this->parseSimpleResponse($responseText);
 
                 $retryValidation = $this->validateBatch($translatedLines, $retryBatch);
                 $recovered = 0;
@@ -596,6 +612,13 @@ class Translator
             return $result;
         }
 
+        // GLM models occasionally emit invalid \escape sequences (e.g. \N instead
+        // of \n for a newline). Fix those and retry before heavier repair.
+        $escapedFix = $this->fixInvalidEscapes($text);
+        if ($escapedFix !== null) {
+            return $escapedFix;
+        }
+
         $text = preg_replace('/<think.*?<\/think>/s', '', $text);
         $text = trim($text);
 
@@ -625,6 +648,23 @@ class Translator
 
         $preview = mb_substr($text, 0, 300);
         throw new \RuntimeException("Failed to extract valid JSON from response. Preview: {$preview}");
+    }
+
+    private function fixInvalidEscapes(string $text): ?array
+    {
+        $fixed = preg_replace_callback(
+            '~\\\\([^"\\\\/bfnrtu])~u',
+            function ($m) {
+                $lower = strtolower($m[1]);
+                if (in_array($lower, ['b', 'f', 'n', 'r', 't'], true)) {
+                    return '\\' . $lower;
+                }
+                return '\\\\' . $m[1];
+            },
+            $text
+        );
+        $result = json_decode($fixed, true);
+        return (is_array($result) && $this->isListOfDicts($result)) ? $result : null;
     }
 
     private function repairJson(string $text): ?array
@@ -775,6 +815,15 @@ class Translator
             if (!isset($line['index']) || !isset($line['text'])) {
                 continue;
             }
+            // Normalize types: json_object mode may return index as int or text as
+            // an array (multi-line cues). Coerce both so downstream code is type-stable.
+            $line['index'] = (string)$line['index'];
+            if (is_array($line['text'])) {
+                $line['text'] = implode("\n", $line['text']);
+            } else {
+                $line['text'] = (string)$line['text'];
+            }
+
             if (!in_array($line['index'], $originalIndexes, true)) {
                 continue;
             }
