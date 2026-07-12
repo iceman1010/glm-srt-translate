@@ -214,7 +214,7 @@ class Translator
                     'temperature' => $this->temperature,
                     'max_tokens' => $dynamicMaxTokens,
                 ];
-                if ($this->modelConfig['reasoning'] ?? false) {
+                if ($this->modelConfig['supports_thinking'] ?? true) {
                     $clientOptions['thinking'] = $this->enableThinking;
                 }
                 if ($this->responseFormat === 'json') {
@@ -486,7 +486,7 @@ class Translator
                     'temperature' => $this->temperature,
                     'max_tokens' => $retryMaxTokens,
                 ];
-                if ($this->modelConfig['reasoning'] ?? false) {
+                if ($this->modelConfig['supports_thinking'] ?? true) {
                     $retryOptions['thinking'] = $this->enableThinking;
                 }
                 if ($this->responseFormat === 'json') {

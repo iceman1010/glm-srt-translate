@@ -1607,7 +1607,8 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4 32B. 128K context. 16K max output."
+            "notes": "GLM-4 32B. 128K context. 16K max output.",
+            "supports_thinking": false
         }
     }
 }
