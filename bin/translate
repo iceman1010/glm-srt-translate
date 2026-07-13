@@ -58,6 +58,35 @@ foreach ($shortToLong as $short => $long) {
     }
 }
 
+// Startup: load .env and check API key
+if (empty($_ENV['ZAI_API_KEY'] ?? null)) {
+    $envSources = [];
+    $envDir = str_starts_with(__DIR__, 'phar://') ? getcwd() : dirname(__DIR__);
+    if (file_exists($envDir . '/.env')) {
+        $envSources[] = $envDir;
+    }
+    $homeDir = getenv('HOME') ?: posix_getpwuid(posix_getuid())['dir'];
+    if (file_exists($homeDir . '/.env')) {
+        $envSources[] = $homeDir;
+    }
+    $globalEnvDir = $homeDir . '/.zai-srt-translate';
+    if (file_exists($globalEnvDir . '/.env')) {
+        $envSources[] = $globalEnvDir;
+    }
+    foreach ($envSources as $dir) {
+        Dotenv::createImmutable($dir)->load();
+        if (!empty($_ENV['ZAI_API_KEY'])) {
+            break;
+        }
+    }
+}
+
+// Warn at startup if no API key (skip for version/update/setup-api)
+$skipKeyWarning = isset($options['version']) || isset($options['update']) || isset($options['setup-api']);
+if (empty($_ENV['ZAI_API_KEY'] ?? null) && !$skipKeyWarning) {
+    fwrite(STDERR, "WARNING: No ZAI_API_KEY found. Run 'zai-srt-translate --setup-api' to configure.\n\n");
+}
+
 if (isset($options['version'])) {
     echo "zai-srt-translate v" . VERSION . "\n";
     exit(0);
@@ -258,30 +287,8 @@ if (isset($options['update'])) {
 }
 
 if (empty($_ENV['ZAI_API_KEY'] ?? null)) {
-    $envSources = [];
-
-    $envDir = str_starts_with(__DIR__, 'phar://') ? getcwd() : dirname(__DIR__);
-    if (file_exists($envDir . '/.env')) {
-        $envSources[] = $envDir;
-    }
-
-    $globalEnvDir = getenv('HOME') . '/.zai-srt-translate';
-    if (file_exists($globalEnvDir . '/.env')) {
-        $envSources[] = $globalEnvDir;
-    }
-
-    foreach ($envSources as $dir) {
-        Dotenv::createImmutable($dir)->load();
-        if (!empty($_ENV['ZAI_API_KEY'])) {
-            break;
-        }
-    }
-
-    if (empty($_ENV['ZAI_API_KEY'])) {
-        echo "Error: Z.AI API key not found.\n";
-        echo "Run: zai-srt-translate --setup-api\n";
-        exit(1);
-    }
+    fwrite(STDERR, "Error: Z.AI API key not found. Run 'zai-srt-translate --setup-api' to configure.\n");
+    exit(1);
 }
 
 if (empty($options['input']) || empty($options['language'])) {

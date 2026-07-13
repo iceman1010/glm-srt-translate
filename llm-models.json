@@ -117,7 +117,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-5.2 flagship. 1M context. 128K output. reasoning_effort supported."
+            "notes": "GLM-5.2 flagship. 1M context. 128K output. reasoning_effort supported.",
+            "recommended": true,
+            "quality": "excellent",
+            "speed": "fast",
+            "reliability": "high",
+            "assessment": "Best overall quality; handles large batches. Top pick for quality."
         },
         "glm-5.1": {
             "model_id": "glm-5.1",
@@ -231,7 +236,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-5.1 flagship model. Reasoning support. 128K context."
+            "notes": "GLM-5.1 flagship model. Reasoning support. 128K context.",
+            "recommended": true,
+            "quality": "excellent",
+            "speed": "fast",
+            "reliability": "high",
+            "assessment": "Top-tier quality, near-identical to 5.2."
         },
         "glm-5-turbo": {
             "model_id": "glm-5-turbo",
@@ -345,7 +355,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-5 Turbo. Reasoning support. 128K context."
+            "notes": "GLM-5 Turbo. Reasoning support. 128K context.",
+            "recommended": true,
+            "quality": "excellent",
+            "speed": "slow",
+            "reliability": "high",
+            "assessment": "Good quality but slower than 5/5.1 despite the name."
         },
         "glm-5": {
             "model_id": "glm-5",
@@ -459,7 +474,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-5. Reasoning support. 128K context."
+            "notes": "GLM-5. Reasoning support. 128K context.",
+            "recommended": true,
+            "quality": "excellent",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Top-tier quality at a lower price than 5.1/5.2."
         },
         "glm-4.7": {
             "model_id": "glm-4.7",
@@ -573,7 +593,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.7. Reasoning support. 128K context."
+            "notes": "GLM-4.7. Reasoning support. 128K context.",
+            "recommended": true,
+            "quality": "good",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Usable quality; best value in the paid mid-tier."
         },
         "glm-4.7-flash": {
             "model_id": "glm-4.7-flash",
@@ -687,7 +712,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.7 Flash. Fast model with reasoning. 128K context."
+            "notes": "GLM-4.7 Flash. Fast model with reasoning. 128K context.",
+            "recommended": true,
+            "quality": "good",
+            "speed": "fast",
+            "reliability": "high",
+            "assessment": "Free, reliable, clean JSON. Best value overall; ~4.7 quality."
         },
         "glm-4.7-flashx": {
             "model_id": "glm-4.7-flashx",
@@ -802,7 +832,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.7 FlashX. Fast, no reasoning. 128K context."
+            "notes": "GLM-4.7 FlashX. Fast, no reasoning. 128K context.",
+            "recommended": false,
+            "quality": "poor",
+            "speed": "fast",
+            "reliability": "medium",
+            "assessment": "Missed translations and wrong meanings; not recommended despite low cost."
         },
         "glm-4.6": {
             "model_id": "glm-4.6",
@@ -917,7 +952,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.6. 128K context."
+            "notes": "GLM-4.6. 128K context.",
+            "recommended": true,
+            "quality": "good",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Usable quality, comparable to 4.7."
         },
         "glm-4.5": {
             "model_id": "glm-4.5",
@@ -1032,7 +1072,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.5. 128K context."
+            "notes": "GLM-4.5. 128K context.",
+            "recommended": false,
+            "quality": "fair",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Borderline quality with rough grammar; below the recommended threshold."
         },
         "glm-4.5-air": {
             "model_id": "glm-4.5-air",
@@ -1147,7 +1192,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.5 Air. Lightweight. 128K context."
+            "notes": "GLM-4.5 Air. Lightweight. 128K context.",
+            "recommended": false,
+            "quality": "unusable",
+            "speed": "fast",
+            "reliability": "low",
+            "assessment": "Unusable: opposite meanings, broken grammar, and JSON artifacts leaked into output."
         },
         "glm-4.5-x": {
             "model_id": "glm-4.5-x",
@@ -1262,7 +1312,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.5 X. Extended. 128K context."
+            "notes": "GLM-4.5 X. Extended. 128K context.",
+            "recommended": false,
+            "quality": "fair",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Most expensive ($8.9/M output) but only 4.5-tier quality with typos; terrible value."
         },
         "glm-4.5-airx": {
             "model_id": "glm-4.5-airx",
@@ -1377,7 +1432,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.5 AirX. 128K context."
+            "notes": "GLM-4.5 AirX. 128K context.",
+            "recommended": false,
+            "quality": "unusable",
+            "speed": "fast",
+            "reliability": "medium",
+            "assessment": "Inverts meaning and misspells words; unusable."
         },
         "glm-4.5-flash": {
             "model_id": "glm-4.5-flash",
@@ -1492,7 +1552,12 @@
                 "ht",
                 "gd"
             ],
-            "notes": "GLM-4.5 Flash. Fastest model. 128K context."
+            "notes": "GLM-4.5 Flash. Fastest model. 128K context.",
+            "recommended": false,
+            "quality": "fair",
+            "speed": "fast",
+            "reliability": "medium",
+            "assessment": "Free but 4.5-generation; quality untested, likely mediocre. Use 4.7-flash instead."
         },
         "glm-4-32b": {
             "model_id": "glm-4-32b-0414-128k",
@@ -1608,7 +1673,12 @@
                 "gd"
             ],
             "notes": "GLM-4 32B. 128K context. 16K max output.",
-            "supports_thinking": false
+            "supports_thinking": false,
+            "recommended": false,
+            "quality": "unusable",
+            "speed": "medium",
+            "reliability": "high",
+            "assessment": "Smallest model: opposite meanings, broken grammar, typos; unusable despite lowest cost."
         }
     }
 }

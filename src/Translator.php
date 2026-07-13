@@ -105,6 +105,10 @@ class Translator
         $total = count($internalFormat);
         echo "Subtitles loaded: {$total}\n";
         echo "Model: {$this->modelKey} ({$this->modelId})\n";
+        if (($this->modelConfig['recommended'] ?? true) === false) {
+            echo "WARNING: model '{$this->modelKey}' is NOT recommended for translation — "
+                . ($this->modelConfig['assessment'] ?? 'quality is below the recommended threshold.') . "\n";
+        }
         echo "Target language: {$this->targetLanguage}\n";
         echo "Batch size: {$this->batchSize}\n";
         if ($this->modelConfig['reasoning'] ?? false) {
