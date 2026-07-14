@@ -6,13 +6,16 @@ This is a port of [cf-llm-srt-translator](https://github.com/iceman1010/cf-llm-s
 
 ## Features
 
-- **13 GLM models** available — from flagship `glm-5.1` to lightweight `glm-4.5-flash`
-- **102 languages** supported (ISO 639 codes and full language names)
+- **14 GLM models** available — from flagship `glm-5.2` to lightweight `glm-4-32b`
+- **Up to 103 languages** supported (varies by model quality tier)
 - **Smart batching** — sends subtitles in large batches for fast throughput
+- **Parallel batch mode** — `--parallel=N` runs N batches concurrently via curl_multi for dramatic speedups
+- **Checkpoint/resume** — parallel mode auto-saves checkpoints per-batch; `--resume` recovers from interruptions with zero wasted tokens
 - **Automatic retry for partial batches** — missing subtitles from incomplete responses are immediately retried
 - **Dynamic token scaling** — output token limit adjusts automatically based on batch size
-- **Progress resume** — translation state saved to `.progress` file; resume after interruption
+- **Progress resume** — sequential mode saves state to `.progress` file; resume after interruption
 - **Rate limit handling** — exponential backoff (30s → 300s cap) without counting against abort limit
+- **Stale checkpoint cleanup** — orphaned checkpoints older than 24h auto-removed at start of each parallel run
 - **RTL support** — automatic BiDi Unicode wrapping for Arabic, Hebrew, Persian, etc.
 - **HTML tag preservation** — `<i>`, `<b>` tags in subtitles are preserved through translation
 - **Subtitle format support** — SRT, VTT, ASS, and any format supported by [mantas-done/subtitles](https://github.com/mantas-done/subtitles)
@@ -103,6 +106,11 @@ Languages can be specified as:
 | `--think` | `-r` | Force reasoning/thinking mode on supported models |
 | `--retry=<n>` | `-R` | Retry count for merged content (default: 1) |
 | `--format=<fmt>` | `-f` | Response format: `simple` or `json` (default: `simple`) |
+| `--delay=<secs>` | `-D` | Delay between batches in seconds (sequential mode, default: 60) |
+| `--log=<file>` | `-L` | Log full request/response to file for debugging |
+| `--parallel[=N]` | | Parallel batch mode: N concurrent requests (default: 3) |
+| `--resume` | | Resume from checkpoints (requires `--parallel`) |
+| `--restart` | | Start from beginning, ignore saved progress/checkpoints |
 | `--debug` | `-v` | Show system prompt and first user message |
 | `--list-models` | | List all available models and exit |
 | `--list-languages` | | List supported languages for a model |
@@ -110,14 +118,40 @@ Languages can be specified as:
 | `--update` | | Self-update to latest release (PHAR only) |
 | `--version` | | Show version |
 
+### Parallel Mode
+
+For faster translations, use `--parallel` to run multiple batches concurrently:
+
+```bash
+# 3 concurrent batches (default)
+zai-srt-translate -i movie.srt -l German -m glm-5.2 --parallel
+
+# 5 concurrent batches
+zai-srt-translate -i movie.srt -l German -m glm-5.2 --parallel=5
+```
+
+Parallel mode automatically saves checkpoints to `/tmp/zai-translate-{hash}/` after each completed batch. If the process is interrupted (crash, kill, server reboot), re-run the same command with `--resume` to pick up exactly where it left off — completed batches are loaded from disk with zero token cost:
+
+```bash
+# Original run was interrupted:
+zai-srt-translate -i movie.srt -l German -m glm-5.2 --parallel=3
+
+# Resume:
+zai-srt-translate -i movie.srt -l German -m glm-5.2 --parallel=3 --resume
+```
+
+Stale checkpoint directories older than 24 hours are automatically cleaned up at the start of each parallel run.
+
+> **Note:** Free models (`glm-4.7-flash`, `glm-4.5-flash`) have strict rate limits that effectively prevent parallel execution. Use a paid model for `--parallel` mode.
+
 ### Examples
 
 ```bash
 # Translate to German with the default model
 php translate.php -i movie.srt -l de
 
-# Translate to Japanese using glm-5.1 with reasoning enabled
-php translate.php -i movie.srt -l Japanese -m glm-5.1 --think
+# Translate to Japanese using glm-5.2 with reasoning enabled
+php translate.php -i movie.srt -l Japanese -m glm-5.2 --think
 
 # Translate to French with custom batch size
 php translate.php -i movie.srt -l fr -b 100
@@ -128,40 +162,48 @@ php translate.php -i movie.srt -l ar -o movie.arabic.srt
 # Translate to Spanish with additional context
 php translate.php -i documentary.srt -l es -d "Nature documentary about marine life"
 
+# Fast parallel translation (paid model)
+php translate.php -i movie.srt -l de -m glm-5.2 --parallel=5
+
 # List available models
 php translate.php --list-models
 
 # List languages for a specific model
-php translate.php --list-languages -m glm-4.5-flash
+php translate.php --list-languages -m glm-5.2
 ```
 
 ## Available Models
 
-| Model Key | Model ID | Context | Reasoning | Notes |
-|-----------|----------|---------|-----------|-------|
-| `glm-5.1` | glm-5.1 | 128K | Yes | Flagship model |
-| `glm-5-turbo` | glm-5-turbo | 128K | Yes | Fast reasoning |
-| `glm-5` | glm-5 | 128K | Yes | GLM-5 series |
-| `glm-4.7` | glm-4.7 | 128K | Yes | GLM-4.7 |
-| `glm-4.7-flash` | glm-4.7-flash | 128K | Yes | **Recommended** — fast, good quality |
-| `glm-4.7-flashx` | glm-4.7-flashx | 128K | No | Fastest, no reasoning overhead |
-| `glm-4.6` | glm-4.6 | 128K | No | GLM-4.6 |
-| `glm-4.5` | glm-4.5 | 128K | Auto | Automatic thinking |
-| `glm-4.5-air` | glm-4.5-air | 128K | Auto | Lightweight |
-| `glm-4.5-x` | glm-4.5-x | 128K | Auto | Extended |
-| `glm-4.5-airx` | glm-4.5-airx | 128K | Auto | Air extended |
-| `glm-4.5-flash` | glm-4.5-flash | 128K | Auto | Flash model |
-| `glm-4-32b` | glm-4-32b-0414-128k | 128K | No | 32B parameter model |
+| Model Key | Model ID | Context | Reasoning | Languages | Cost (in/out per M) | Notes |
+|-----------|----------|---------|-----------|-----------|-------------------|-------|
+| `glm-5.2` | glm-5.2 | 128K | Yes | 103 | $1.40 / $4.40 | **Recommended** — best quality |
+| `glm-5.1` | glm-5.1 | 128K | Yes | 103 | $1.40 / $4.40 | High quality |
+| `glm-5` | glm-5 | 128K | Yes | 103 | $1.00 / $3.20 | GLM-5 series |
+| `glm-5-turbo` | glm-5-turbo | 128K | Yes | 103 | $1.20 / $4.00 | Fast reasoning |
+| `glm-4.7` | glm-4.7 | 128K | Yes | 85 | $0.60 / $2.20 | Good quality, lower cost |
+| `glm-4.7-flash` | glm-4.7-flash | 128K | Yes | 85 | Free | Fast, rate-limited |
+| `glm-4.7-flashx` | glm-4.7-flashx | 128K | No | 30 | $0.07 / $0.40 | Cheapest paid |
+| `glm-4.6` | glm-4.6 | 128K | No | 85 | $0.60 / $2.20 | GLM-4.6 |
+| `glm-4.5` | glm-4.5 | 128K | Auto | 30 | $0.60 / $2.20 | |
+| `glm-4.5-air` | glm-4.5-air | 128K | Auto | 30 | $0.20 / $1.10 | Lightweight |
+| `glm-4.5-x` | glm-4.5-x | 128K | Auto | 30 | $2.20 / $8.90 | Extended |
+| `glm-4.5-airx` | glm-4.5-airx | 128K | Auto | 30 | $1.10 / $4.50 | Air extended |
+| `glm-4.5-flash` | glm-4.5-flash | 128K | Auto | 30 | Free | Rate-limited |
+| `glm-4-32b` | glm-4-32b-0414-128k | 128K | No | 30 | $0.10 / $0.10 | Cheapest, low quality |
 
-> **Tip:** `glm-4.7-flash` is the recommended default — it offers a good balance of speed, quality, and reliability. Use `glm-5.1` with `--think` for maximum quality on difficult translations.
+> **Tip:** `glm-5.2` is recommended for production use — best quality, supports `--parallel`. Use `--think` for maximum quality on difficult translations. Free models (`glm-4.7-flash`, `glm-4.5-flash`) are rate-limited and not suitable for parallel mode.
 
 ## Supported Languages
 
-102 languages are supported. Here are some commonly used ones:
+Language support varies by model quality tier:
 
-`af` Afrikaans, `ar` Arabic, `az` Azerbaijani, `be` Belarusian, `bg` Bulgarian, `bn` Bengali, `bs` Bosnian, `ca` Catalan, `cs` Czech, `cy` Welsh, `da` Danish, `de` German, `el` Greek, `en` English, `es` Spanish, `et` Estonian, `eu` Basque, `fa` Persian, `fi` Finnish, `fr` French, `ga` Irish, `gl` Galician, `gu` Gujarati, `he` Hebrew, `hi` Hindi, `hr` Croatian, `hu` Hungarian, `hy` Armenian, `id` Indonesian, `is` Icelandic, `it` Italian, `ja` Japanese, `ka` Georgian, `kk` Kazakh, `km` Khmer, `ko` Korean, `lo` Lao, `lt` Lithuanian, `lv` Latvian, `mk` Macedonian, `ml` Malayalam, `mn` Mongolian, `mr` Marathi, `ms` Malay, `mt` Maltese, `my` Burmese, `nl` Dutch, `no` Norwegian, `pa` Panjabi, `pl` Polish, `pt` Portuguese, `ro` Romanian, `ru` Russian, `sk` Slovak, `sl` Slovenian, `sq` Albanian, `sr` Serbian, `sv` Swedish, `sw` Swahili, `ta` Tamil, `te` Telugu, `tg` Tajik, `th` Thai, `tk` Turkmen, `tl` Tagalog, `tr` Turkish, `uk` Ukrainian, `ur` Urdu, `uz` Uzbek, `vi` Vietnamese, `yi` Yiddish, `zh` Chinese, `zu` Zulu
+- **GLM-5.x** (glm-5.2, glm-5.1, glm-5, glm-5-turbo): **103 languages**
+- **GLM-4.7/4.6** (glm-4.7, glm-4.7-flash, glm-4.6): **85 languages**
+- **GLM-4.5 and below** (7 models): **30 core languages**
 
-Run `--list-languages` with a model to see the full list.
+Core languages (all models): English, Chinese, Japanese, Korean, French, German, Spanish, Portuguese, Italian, Dutch, Russian, Arabic, Hindi, Turkish, Vietnamese, Thai, Indonesian, Malay, Polish, Swedish, Danish, Norwegian, Finnish, Czech, Greek, Hebrew, Romanian, Hungarian, Ukrainian, Bulgarian.
+
+Run `--list-languages -m <model>` to see the full list for a specific model.
 
 ## How It Works
 
@@ -186,6 +228,8 @@ Run `--list-languages` with a model to see the full list.
 
 ## Resume Support
 
+### Sequential Mode
+
 If a translation is interrupted (Ctrl+C, network error, etc.), a `.progress` file is saved next to the input file. Re-running the same command resumes from where it left off:
 
 ```bash
@@ -196,7 +240,21 @@ php translate.php -i movie.srt -l de
 php translate.php -i movie.srt -l de
 ```
 
-The progress file tracks the model and target language — changing either starts fresh.
+The progress file tracks the model and target language — changing either starts fresh. Use `--restart` to clear progress and start over.
+
+### Parallel Mode
+
+Parallel mode (`--parallel`) saves checkpoints per-batch to `/tmp/`. If interrupted, use `--resume`:
+
+```bash
+# First run (gets interrupted)
+php translate.php -i movie.srt -l de -m glm-5.2 --parallel=3
+
+# Resume (loads completed batches from disk, zero tokens re-spent)
+php translate.php -i movie.srt -l de -m glm-5.2 --parallel=3 --resume
+```
+
+Checkpoints are auto-cleaned on successful completion. Stale checkpoints (>24h) are removed automatically.
 
 ## Self-Update (PHAR only)
 
