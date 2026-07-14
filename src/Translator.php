@@ -44,6 +44,10 @@ class Translator
     private int $consecutiveSuccesses = 0;
     private float $lastRequestTime = 0.0;
 
+    private int $parallel = 0;
+    private bool $resume = false;
+    private ?string $checkpointDir = null;
+
     public function __construct(array $options)
     {
         $this->apiKey = $options['api_key'];
@@ -78,6 +82,12 @@ class Translator
         $this->batchDelay = max(0, (int)(is_array($options['delay'] ?? 60) ? reset($options['delay'] ?? 60) : $options['delay'] ?? 60));
         $this->originalDelay = $this->batchDelay;
         $this->restartMode = $options['restart'] ?? false;
+        $this->parallel = max(0, (int)($options['parallel'] ?? 0));
+        $this->resume = $options['resume'] ?? false;
+        if ($this->resume && $this->parallel === 0) {
+            echo "Warning: --resume requires --parallel mode. Ignoring --resume.\n";
+            $this->resume = false;
+        }
 
         if (isset($options['output_file'])) {
             $this->outputFile = is_array($options['output_file']) ? reset($options['output_file']) : $options['output_file'];
@@ -166,6 +176,11 @@ class Translator
         $translations = [];
         if ($startIndex > 0 && isset($progressData['translations'])) {
             $translations = $progressData['translations'];
+        }
+
+        if ($this->parallel > 0) {
+            $this->translateParallel($internalFormat, $systemPrompt, $total, $startTime, $translatedFormat, $translations);
+            return;
         }
 
         $i = $startIndex;
@@ -439,6 +454,397 @@ class Translator
 
         if ($this->qualityIssues > 0) {
             echo "\n Model {$this->modelKey} had {$this->qualityIssues} quality issue(s).\n";
+        }
+    }
+
+    private function translateParallel(
+        array $internalFormat,
+        string $systemPrompt,
+        int $total,
+        float $startTime,
+        array &$translatedFormat,
+        array &$translations
+    ): void {
+        $stripHtml = $this->modelConfig['strip_html'] ?? false;
+
+        $batches = [];
+        $i = 0;
+        while ($i < $total) {
+            $effectiveBatchSize = $this->fitBatchToContext($internalFormat, $i, $this->batchSize, $systemPrompt);
+            $batchEnd = min($i + $effectiveBatchSize, $total);
+
+            $batchData = [];
+            $htmlMap = [];
+            for ($j = $i; $j < $batchEnd; $j++) {
+                $sub = $internalFormat[$j];
+                $text = $this->linesToText($sub['lines']);
+                $text = preg_replace('/\[(\S[^]]*)\]/', '[ $1 ]', $text);
+                if ($stripHtml) {
+                    $htmlMap[(string)$j] = $this->extractHtmlTags($text);
+                    $text = strip_tags($text);
+                }
+                $batchData[] = ['index' => (string)$j, 'text' => $text];
+            }
+
+            $userMessage = $this->responseFormat === 'simple'
+                ? PromptBuilder::formatBatchAsSimple($batchData)
+                : PromptBuilder::formatBatchAsJson($batchData);
+
+            $effectiveBatchCount = $batchEnd - $i;
+            $dynamicMaxTokens = min(131072, max($this->maxTokens, $effectiveBatchCount * 55));
+
+            $clientOptions = [
+                'temperature' => $this->temperature,
+                'max_tokens' => $dynamicMaxTokens,
+            ];
+            if ($this->modelConfig['supports_thinking'] ?? true) {
+                $clientOptions['thinking'] = $this->enableThinking;
+            }
+            if ($this->responseFormat === 'json') {
+                $clientOptions['response_format'] = 'json_object';
+            }
+
+            $batches[] = [
+                'index' => count($batches),
+                'start' => $i,
+                'end' => $batchEnd,
+                'data' => $batchData,
+                'user_message' => $userMessage,
+                'options' => $clientOptions,
+                'html_map' => $htmlMap,
+                'strip_html' => $stripHtml,
+                'retry_count' => 0,
+                'completed' => false,
+            ];
+
+            $i = $batchEnd;
+        }
+
+        $totalBatches = count($batches);
+        $concurrency = min($this->parallel, $totalBatches);
+        echo "Parallel mode: {$totalBatches} batches, {$concurrency} concurrent\n";
+
+        $this->checkpointDir = $this->getCheckpointDir();
+
+        $this->cleanStaleCheckpoints();
+
+        if ($this->restartMode) {
+            $this->cleanCheckpoints();
+            $this->resume = false;
+            echo "Checkpoints cleared (--restart).\n";
+        }
+
+        if ($this->resume) {
+            $loaded = 0;
+            foreach ($batches as &$batch) {
+                $checkpoint = $this->loadCheckpoint($batch['index']);
+                if ($checkpoint !== null) {
+                    $batch['completed'] = true;
+                    foreach ($checkpoint as $line) {
+                        $idx = (int)$line['index'];
+                        $translatedFormat[$idx]['lines'] = $this->textToLines($line['text']);
+                        $translations[$idx] = $line['text'];
+                    }
+                    $loaded++;
+                }
+            }
+            unset($batch);
+            if ($loaded > 0) {
+                echo "Resumed: {$loaded}/{$totalBatches} batches loaded from checkpoints\n";
+            }
+        } else {
+            if (is_dir($this->checkpointDir)) {
+                foreach (glob($this->checkpointDir . '/*.json') as $file) {
+                    unlink($file);
+                }
+            }
+        }
+
+        $pending = array_values(array_filter($batches, fn($b) => !$b['completed']));
+        $completed = $totalBatches - count($pending);
+        $allMissing = [];
+        $maxRetries = 3;
+
+        while (!empty($pending)) {
+            $retryQueue = [];
+            $hadRateLimit = false;
+            $queue = $pending;
+            $concurrency = min($this->parallel, count($queue));
+
+            $mh = curl_multi_init();
+            if ($mh === false) {
+                throw new \RuntimeException("Failed to initialize curl_multi");
+            }
+
+            $inFlight = [];
+            for ($w = 0; $w < $concurrency && !empty($queue); $w++) {
+                $batch = array_shift($queue);
+                $request = $this->client->buildRequest(
+                    $this->modelId, $systemPrompt,
+                    $batch['user_message'], $batch['options']
+                );
+                $meta = $this->client->createHandle($request);
+                curl_multi_add_handle($mh, $meta->handle);
+                $inFlight[$batch['index']] = ['meta' => $meta, 'batch' => $batch];
+            }
+
+            do {
+                $status = curl_multi_exec($mh, $active);
+                if ($status !== CURLM_OK) {
+                    break;
+                }
+                if ($active) {
+                    curl_multi_select($mh, 1.0);
+                }
+
+                while ($info = curl_multi_info_read($mh)) {
+                    $ch = $info['handle'];
+                    $response = curl_multi_getcontent($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    $curlError = curl_error($ch);
+
+                    $batchIdx = null;
+                    $meta = null;
+                    $batch = null;
+                    foreach ($inFlight as $idx => $data) {
+                        if ($data['meta']->handle === $ch) {
+                            $batchIdx = $idx;
+                            $meta = $data['meta'];
+                            $batch = $data['batch'];
+                            unset($inFlight[$idx]);
+                            break;
+                        }
+                    }
+                    if ($batchIdx === null) {
+                        curl_multi_remove_handle($mh, $ch);
+                        curl_close($ch);
+                        continue;
+                    }
+
+                    try {
+                        $parsed = $this->client->parseResponse($response, $httpCode, $curlError, $meta);
+                        $responseText = $parsed['result']['response'] ?? '';
+                        $translatedLines = $this->responseFormat === 'json'
+                            ? $this->extractJson($responseText)
+                            : $this->parseSimpleResponse($responseText);
+                        $validation = $this->validateBatch($translatedLines, $batch['data']);
+
+                        $validLines = $validation['valid'];
+                        $missingIndexes = $validation['missingIndexes'] ?? [];
+
+                        foreach ($validLines as $line) {
+                            $idx = (int)$line['index'];
+                            $text = $line['text'];
+                            $text = preg_replace('/\[ (.*?) \]/', '[$1]', $text);
+                            if ($batch['strip_html'] && isset($batch['html_map'][(string)$idx])) {
+                                $text = $this->reinsertHtmlTags($text, $batch['html_map'][(string)$idx]);
+                            }
+                            if ($this->isDominantRtl($text)) {
+                                $text = "\u{202B}" . $text . "\u{202C}";
+                            }
+                            $translatedFormat[$idx]['lines'] = $this->textToLines($text);
+                            $translations[$idx] = $text;
+                        }
+
+                        $this->saveCheckpoint($batchIdx, $validLines);
+                        $completed++;
+
+                        $progress = (int)round($completed / $totalBatches * 100);
+                        $validCount = count($validLines);
+                        $expectedCount = count($batch['data']);
+                        $missingStr = !empty($missingIndexes) ? ", " . count($missingIndexes) . " missing" : "";
+                        echo sprintf(
+                            "  [%d/%d %d%%] batch %d-%d: %d/%d ok%s\n",
+                            $completed, $totalBatches, $progress,
+                            $batch['start'] + 1, $batch['end'],
+                            $validCount, $expectedCount, $missingStr
+                        );
+
+                        if (!empty($missingIndexes)) {
+                            $allMissing = array_merge($allMissing, $missingIndexes);
+                        }
+
+                        if (isset($parsed['result']['usage'])) {
+                            $this->totalInputTokens += $parsed['result']['usage']['prompt_tokens'] ?? 0;
+                            $this->totalOutputTokens += $parsed['result']['usage']['completion_tokens'] ?? 0;
+                            $reasoningContent = $parsed['result']['reasoning_content'] ?? '';
+                            if ($reasoningContent !== '') {
+                                $this->totalThinkTokens += (int)ceil(mb_strlen($reasoningContent) / 3.5);
+                            }
+                        }
+                        $this->totalApiCalls++;
+                    } catch (\RuntimeException $e) {
+                        $msg = $e->getMessage();
+                        if (str_starts_with($msg, 'ZAI_BALANCE_ERROR:') || str_starts_with($msg, 'ZAI_AUTH_ERROR:')) {
+                            echo "\nFatal error: {$msg}\nAborting.\n";
+                            curl_multi_remove_handle($mh, $ch);
+                            curl_close($ch);
+                            curl_multi_close($mh);
+                            $this->assembleOutput($translatedFormat, $startTime);
+                            return;
+                        } elseif (str_starts_with($msg, 'ZAI_RATE_LIMITED:')) {
+                            $hadRateLimit = true;
+                            $batches[$batchIdx]['retry_count']++;
+                            if ($batches[$batchIdx]['retry_count'] <= $maxRetries) {
+                                $retryQueue[] = $batches[$batchIdx];
+                            } else {
+                                echo sprintf(
+                                    "  [X] batch %d-%d rate-limited after %d retries, giving up\n",
+                                    $batch['start'] + 1, $batch['end'], $maxRetries
+                                );
+                                for ($j = $batch['start']; $j < $batch['end']; $j++) {
+                                    $allMissing[] = $j;
+                                }
+                                $completed++;
+                            }
+                        } else {
+                            $batches[$batchIdx]['retry_count']++;
+                            if ($batches[$batchIdx]['retry_count'] <= $maxRetries) {
+                                echo sprintf(
+                                    "  [!] batch %d-%d failed (retry %d/%d): %s\n",
+                                    $batch['start'] + 1, $batch['end'],
+                                    $batches[$batchIdx]['retry_count'], $maxRetries,
+                                    $msg
+                                );
+                                $retryQueue[] = $batches[$batchIdx];
+                            } else {
+                                echo sprintf(
+                                    "  [X] batch %d-%d failed after %d retries: %s\n",
+                                    $batch['start'] + 1, $batch['end'], $maxRetries,
+                                    $msg
+                                );
+                                for ($j = $batch['start']; $j < $batch['end']; $j++) {
+                                    $allMissing[] = $j;
+                                }
+                                $completed++;
+                            }
+                        }
+                    }
+
+                    curl_multi_remove_handle($mh, $ch);
+                    curl_close($ch);
+
+                    if (!empty($queue)) {
+                        $nextBatch = array_shift($queue);
+                        $request = $this->client->buildRequest(
+                            $this->modelId, $systemPrompt,
+                            $nextBatch['user_message'], $nextBatch['options']
+                        );
+                        $meta = $this->client->createHandle($request);
+                        curl_multi_add_handle($mh, $meta->handle);
+                        $inFlight[$nextBatch['index']] = ['meta' => $meta, 'batch' => $nextBatch];
+                    }
+                }
+            } while (!empty($inFlight) || !empty($queue));
+
+            curl_multi_close($mh);
+
+            if ($hadRateLimit && !empty($retryQueue)) {
+                echo "  Rate limited, waiting 30s before retry...\n";
+                sleep(30);
+            }
+
+            $pending = $retryQueue;
+        }
+
+        if (!empty($allMissing)) {
+            $allMissing = array_values(array_unique($allMissing));
+            sort($allMissing);
+            echo "\nRetrying " . count($allMissing) . " missing subtitle(s)...\n";
+            $this->retryMissing(
+                $allMissing, $internalFormat, $systemPrompt,
+                $stripHtml, $translatedFormat, $translations, ''
+            );
+        }
+
+        $this->assembleOutput($translatedFormat, $startTime);
+        $this->cleanCheckpoints();
+    }
+
+    private function assembleOutput(array $translatedFormat, float $startTime): void
+    {
+        $outputSubtitles = new Subtitles();
+        foreach ($translatedFormat as $sub) {
+            $outputSubtitles->add(
+                $sub['start'],
+                $sub['end'],
+                $this->linesToText($sub['lines'])
+            );
+        }
+        $outputSubtitles->save($this->outputFile);
+
+        echo "\nTranslation completed!\n";
+        $elapsed = round(microtime(true) - $startTime, 2);
+        echo "Output saved to: {$this->outputFile}\n";
+        echo "Time: {$elapsed}s\n";
+        $this->logTokenUsage();
+
+        if ($this->qualityIssues > 0) {
+            echo "\n Model {$this->modelKey} had {$this->qualityIssues} quality issue(s).\n";
+        }
+    }
+
+    private function getCheckpointDir(): string
+    {
+        $realPath = realpath($this->inputFile);
+        $hash = md5($realPath . filesize($this->inputFile) . $this->modelKey . $this->targetLanguage);
+        return sys_get_temp_dir() . '/zai-translate-' . $hash;
+    }
+
+    private function saveCheckpoint(int $batchIndex, array $validLines): void
+    {
+        if ($this->checkpointDir === null) {
+            return;
+        }
+        if (!is_dir($this->checkpointDir)) {
+            mkdir($this->checkpointDir, 0700, true);
+        }
+        $path = $this->checkpointDir . '/batch_' . sprintf('%04d', $batchIndex) . '.json';
+        file_put_contents($path, json_encode($validLines, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function loadCheckpoint(int $batchIndex): ?array
+    {
+        if ($this->checkpointDir === null) {
+            return null;
+        }
+        $path = $this->checkpointDir . '/batch_' . sprintf('%04d', $batchIndex) . '.json';
+        if (!file_exists($path)) {
+            return null;
+        }
+        $data = json_decode(file_get_contents($path), true);
+        if (!is_array($data)) {
+            return null;
+        }
+        return $data;
+    }
+
+    private function cleanCheckpoints(): void
+    {
+        if ($this->checkpointDir === null) {
+            return;
+        }
+        if (!is_dir($this->checkpointDir)) {
+            return;
+        }
+        foreach (glob($this->checkpointDir . '/*.json') as $file) {
+            unlink($file);
+        }
+        rmdir($this->checkpointDir);
+        $this->checkpointDir = null;
+    }
+
+    private function cleanStaleCheckpoints(int $maxAgeHours = 24): void
+    {
+        $pattern = sys_get_temp_dir() . '/zai-translate-*';
+        $cutoff = time() - ($maxAgeHours * 3600);
+        foreach (glob($pattern, GLOB_ONLYDIR) as $dir) {
+            if (filemtime($dir) < $cutoff) {
+                foreach (glob($dir . '/*.json') as $file) {
+                    unlink($file);
+                }
+                rmdir($dir);
+            }
         }
     }
 
@@ -1020,6 +1426,9 @@ class Translator
 
     private function saveProgress(string $path, int $index, array $translations): void
     {
+        if ($path === '') {
+            return;
+        }
         $data = [
             'index' => $index,
             'model' => $this->modelKey,

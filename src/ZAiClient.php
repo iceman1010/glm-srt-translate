@@ -15,7 +15,7 @@ class ZAiClient
         $this->logFile = $logFile;
     }
 
-    public function chatCompletion(
+    public function buildRequest(
         string $modelId,
         string $systemPrompt,
         string $userMessage,
@@ -45,40 +45,63 @@ class ZAiClient
             }
         }
 
-        // When set (e.g. 'json_object'), the API enforces valid JSON output at the
-        // sampler level. This is what makes the JSON subtitle contract reliable.
         if (isset($options['response_format'])) {
             $body['response_format'] = ['type' => $options['response_format']];
         }
 
         $jsonBody = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        $responseHeaders = '';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $jsonBody,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => $this->timeout,
-            CURLOPT_CONNECTTIMEOUT => 30,
-            CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders) {
-                $responseHeaders .= $header;
-                return strlen($header);
-            },
-            CURLOPT_HTTPHEADER => [
+        return [
+            'url' => $url,
+            'headers' => [
                 'Authorization: Bearer ' . $this->apiKey,
                 'Content-Type: application/json',
             ],
+            'body' => $jsonBody,
+            'original_body' => $body,
+        ];
+    }
+
+    public function createHandle(array $request): object
+    {
+        $meta = new \stdClass();
+        $meta->responseHeaders = '';
+        $meta->request = $request;
+        $meta->startTime = microtime(true);
+
+        $ch = curl_init($request['url']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $request['body'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_HEADERFUNCTION => function ($ch, $header) use ($meta) {
+                $meta->responseHeaders .= $header;
+                return strlen($header);
+            },
+            CURLOPT_HTTPHEADER => $request['headers'],
         ]);
 
-        $startTime = microtime(true);
-        $response = curl_exec($ch);
-        $elapsed = round(microtime(true) - $startTime, 3);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
+        $meta->handle = $ch;
+        return $meta;
+    }
 
-        $this->logRequest($url, $body, $jsonBody, $httpCode, $responseHeaders, $response, $elapsed, $curlError);
+    public function parseResponse($response, int $httpCode, string $curlError, object $meta): array
+    {
+        $request = $meta->request;
+        $elapsed = round(microtime(true) - $meta->startTime, 3);
+
+        $this->logRequest(
+            $request['url'],
+            $request['original_body'],
+            $request['body'],
+            $httpCode,
+            $meta->responseHeaders,
+            $response,
+            $elapsed,
+            $curlError
+        );
 
         if ($response === false) {
             if (str_contains($curlError, 'timed out') || str_contains($curlError, 'Timeout')) {
@@ -92,8 +115,6 @@ class ZAiClient
         if ($httpCode === 429) {
             $zaiCode = $data['error']['code'] ?? '';
             $zaiMsg = $data['error']['message'] ?? '';
-            // code 1113 = insufficient balance / no resource package — NOT a rate
-            // limit. Retrying is pointless; abort so we don't burn time and tokens.
             if ($zaiCode === '1113' || preg_match('/balance|recharge|resource package/i', $zaiMsg)) {
                 throw new \RuntimeException("ZAI_BALANCE_ERROR: [{$zaiCode}] {$zaiMsg}");
             }
@@ -140,6 +161,23 @@ class ZAiClient
                 'choices' => $data['choices'] ?? [],
             ],
         ];
+    }
+
+    public function chatCompletion(
+        string $modelId,
+        string $systemPrompt,
+        string $userMessage,
+        array $options = []
+    ): array {
+        $request = $this->buildRequest($modelId, $systemPrompt, $userMessage, $options);
+        $meta = $this->createHandle($request);
+
+        $response = curl_exec($meta->handle);
+        $httpCode = curl_getinfo($meta->handle, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($meta->handle);
+        curl_close($meta->handle);
+
+        return $this->parseResponse($response, $httpCode, $curlError, $meta);
     }
 
     private function logRequest(

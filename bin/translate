@@ -32,6 +32,8 @@ $longOpts = [
     'delay::',
     'log:',
     'debug',
+    'parallel::',
+    'resume',
 ];
 $options = getopt($shortOpts, $longOpts);
 
@@ -312,6 +314,9 @@ echo "              --restart                 Start from beginning, ignore saved
 echo "  -f <fmt>    --format=<fmt>            Response format: json|simple (default: simple)\n";
 echo "  -D <secs>   --delay=<secs>            Delay between batches in seconds (default: 60)\n";
 echo "  -L <file>   --log=<file>              Log full request/response to file for debugging\n";
+echo "              --parallel[=N]            Parallel batch mode: N concurrent requests (default: 3)\n";
+echo "                                        Checkpoints saved automatically for recovery\n";
+echo "              --resume                  Resume from checkpoints (requires --parallel)\n";
 echo "  -v          --debug                 Show system prompt and first user message\n";
     exit(1);
 }
@@ -391,6 +396,10 @@ try {
         'delay' => isset($options['delay']) ? (int)$options['delay'] : 60,
         'log' => $options['log'] ?? null,
         'debug' => isset($options['debug']),
+        'parallel' => isset($options['parallel'])
+            ? ($options['parallel'] === false ? 3 : max(1, (int)$options['parallel']))
+            : 0,
+        'resume' => isset($options['resume']),
     ]);
 
     $translator->translate();
