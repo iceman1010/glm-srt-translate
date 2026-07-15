@@ -25,7 +25,7 @@ $longOpts = [
     'restart',
     'list-models',
     'list-languages',
-    'update',
+    'update::',
     'setup-api',
     'version',
     'format:',
@@ -219,27 +219,45 @@ if (isset($options['update'])) {
     }
 
     $repo = 'iceman1010/glm-srt-translate';
-    $apiUrl = "https://api.github.com/repos/{$repo}/releases/latest";
+    $targetVersion = $options['update'] !== false ? $options['update'] : null;
+
+    $ctx = stream_context_create(['http' => ['header' => 'User-Agent: zai-srt-translate', 'timeout' => 30]]);
 
     echo "Current version: " . VERSION . "\n";
 
-    $ctx = stream_context_create(['http' => ['header' => 'User-Agent: zai-srt-translate', 'timeout' => 30]]);
+    if ($targetVersion !== null) {
+        $targetVersion = ltrim($targetVersion, 'v');
+        $apiUrl = "https://api.github.com/repos/{$repo}/releases/tags/v{$targetVersion}";
+    } else {
+        $apiUrl = "https://api.github.com/repos/{$repo}/releases/latest";
+    }
+
     $json = @file_get_contents($apiUrl, false, $ctx);
     if ($json === false) {
-        echo "Error: Failed to fetch release info from GitHub.\n";
+        if ($targetVersion !== null) {
+            echo "Error: Version v{$targetVersion} not found.\n";
+        } else {
+            echo "Error: Failed to fetch release info from GitHub.\n";
+        }
         exit(1);
     }
     $release = json_decode($json, true);
-    $latestTag = $release['tag_name'] ?? '';
 
-    if (empty($latestTag)) {
-        echo "Error: Could not determine latest version.\n";
+    if (isset($release['message']) && $release['message'] === 'Not Found') {
+        echo "Error: Version v{$targetVersion} not found.\n";
         exit(1);
     }
 
-    echo "Latest version:  {$latestTag}\n";
+    $latestTag = $release['tag_name'] ?? '';
 
-    if ('v' . VERSION === $latestTag) {
+    if (empty($latestTag)) {
+        echo "Error: Could not determine version.\n";
+        exit(1);
+    }
+
+    echo "Target version: {$latestTag}\n";
+
+    if ($targetVersion === null && 'v' . VERSION === $latestTag) {
         echo "Already up to date.\n";
         exit(0);
     }
@@ -318,6 +336,13 @@ echo "              --parallel[=N]            Parallel batch mode: N concurrent 
 echo "                                        Checkpoints saved automatically for recovery\n";
 echo "              --resume                  Resume from checkpoints (requires --parallel)\n";
 echo "  -v          --debug                 Show system prompt and first user message\n";
+echo "\n";
+echo "Commands:\n";
+echo "              --version                 Show version and exit\n";
+echo "              --setup-api               Configure Z.AI API credentials interactively\n";
+echo "              --list-models             List available models and exit\n";
+echo "              --list-languages          List supported languages for a model (requires --model)\n";
+echo "              --update[=version]        Update to latest or a specific version (PHAR build only)\n";
     exit(1);
 }
 
@@ -400,6 +425,7 @@ try {
             ? ($options['parallel'] === false ? 3 : max(1, (int)$options['parallel']))
             : 0,
         'resume' => isset($options['resume']),
+        'base_url' => getenv('ZAI_BASE_URL') ?: null,
     ]);
 
     $translator->translate();

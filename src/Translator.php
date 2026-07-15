@@ -99,7 +99,8 @@ class Translator
         }
 
         $logFile = isset($options['log']) && $options['log'] ? (string)$options['log'] : null;
-        $this->client = new ZAiClient($this->apiKey, 600, $logFile);
+        $baseUrl = isset($options['base_url']) && $options['base_url'] ? (string)$options['base_url'] : 'https://api.z.ai/api/paas/v4/chat/completions';
+        $this->client = new ZAiClient($this->apiKey, 600, $logFile, $baseUrl);
     }
 
     public function translate(): void
@@ -564,38 +565,88 @@ class Translator
         $completed = $totalBatches - count($pending);
         $allMissing = [];
         $maxRetries = 3;
+        $maxRateLimitRetries = 8;
 
-        while (!empty($pending)) {
-            $retryQueue = [];
-            $hadRateLimit = false;
-            $queue = $pending;
-            $concurrency = min($this->parallel, count($queue));
+        // --- Adaptive pacing state ---
+        // The previous implementation fired N concurrent requests with no
+        // throttle and then re-fired the whole retry queue at full blast after
+        // a fixed 30s sleep — guaranteeing a 429 storm that made parallel mode
+        // slower than serial. We now cap the *dispatch rate* (requests per
+        // minute) with a minimum interval between dispatches, and adapt that
+        // interval plus the concurrency on rate-limit / clean windows.
+        $configuredConcurrency = min($this->parallel, count($pending));
+        $effectiveConcurrency = $configuredConcurrency;
+        $floorInterval = 1;
+        $ceilingInterval = max(60, $this->batchDelay);
+        // Start by spreading the serial --delay across the concurrency window,
+        // then let the adaptive logic converge on the real API limit.
+        $dispatchInterval = (int)max(
+            $floorInterval,
+            min($ceilingInterval, (int)ceil($this->batchDelay / max(1, $configuredConcurrency)))
+        );
+        $cleanWindows = 0;
+        $lastDispatchTime = 0.0;
+        $rateLimitUntil = 0.0; // honors server Retry-After when present
 
-            $mh = curl_multi_init();
-            if ($mh === false) {
-                throw new \RuntimeException("Failed to initialize curl_multi");
-            }
+        echo "Parallel pacing: ~{$dispatchInterval}s between dispatches, {$effectiveConcurrency} concurrent (adaptive)\n";
 
-            $inFlight = [];
-            for ($w = 0; $w < $concurrency && !empty($queue); $w++) {
-                $batch = array_shift($queue);
-                $request = $this->client->buildRequest(
-                    $this->modelId, $systemPrompt,
-                    $batch['user_message'], $batch['options']
-                );
-                $meta = $this->client->createHandle($request);
-                curl_multi_add_handle($mh, $meta->handle);
-                $inFlight[$batch['index']] = ['meta' => $meta, 'batch' => $batch];
-            }
+        $queue = $pending;
+        $inFlight = [];
 
-            do {
+        $mh = curl_multi_init();
+        if ($mh === false) {
+            throw new \RuntimeException("Failed to initialize curl_multi");
+        }
+
+        try {
+            // Sliding-window loop: keep up to $effectiveConcurrency requests in
+            // flight, pacing each new dispatch by $dispatchInterval. Rate-limited
+            // batches are re-queued at the tail (never re-fired at full blast) and
+            // trigger backoff; consecutive clean windows ease the pace back up.
+            while (!empty($queue) || !empty($inFlight)) {
+                while (count($inFlight) < $effectiveConcurrency && !empty($queue)) {
+                    $this->paceParallelDispatch($lastDispatchTime, $rateLimitUntil, $dispatchInterval);
+                    $batch = array_shift($queue);
+                    $request = $this->client->buildRequest(
+                        $this->modelId, $systemPrompt,
+                        $batch['user_message'], $batch['options']
+                    );
+                    $meta = $this->client->createHandle($request);
+                    curl_multi_add_handle($mh, $meta->handle);
+                    $inFlight[$batch['index']] = ['meta' => $meta, 'batch' => $batch];
+                    $lastDispatchTime = microtime(true);
+                }
+
+                if (empty($inFlight)) {
+                    continue;
+                }
+
+                // Wake on activity OR when the next dispatch slot opens, whichever
+                // is sooner (so pacing stays accurate under load).
+                $selectTimeout = 1.0;
+                if (count($inFlight) < $effectiveConcurrency && !empty($queue)) {
+                    $remaining = $dispatchInterval - (microtime(true) - $lastDispatchTime);
+                    if ($remaining > 0) {
+                        $selectTimeout = min($selectTimeout, $remaining);
+                    }
+                }
+                if ($rateLimitUntil > 0) {
+                    $rlRemaining = $rateLimitUntil - microtime(true);
+                    if ($rlRemaining > 0) {
+                        $selectTimeout = min($selectTimeout, $rlRemaining);
+                    }
+                }
+
                 $status = curl_multi_exec($mh, $active);
                 if ($status !== CURLM_OK) {
                     break;
                 }
                 if ($active) {
-                    curl_multi_select($mh, 1.0);
+                    curl_multi_select($mh, max(0.05, $selectTimeout));
                 }
+
+                $windowHadRateLimit = false;
+                $windowHadSuccess = false;
 
                 while ($info = curl_multi_info_read($mh)) {
                     $ch = $info['handle'];
@@ -648,6 +699,7 @@ class Translator
 
                         $this->saveCheckpoint($batchIdx, $validLines);
                         $completed++;
+                        $windowHadSuccess = true;
 
                         $progress = (int)round($completed / $totalBatches * 100);
                         $validCount = count($validLines);
@@ -679,18 +731,34 @@ class Translator
                             echo "\nFatal error: {$msg}\nAborting.\n";
                             curl_multi_remove_handle($mh, $ch);
                             curl_close($ch);
-                            curl_multi_close($mh);
                             $this->assembleOutput($translatedFormat, $startTime);
                             return;
                         } elseif (str_starts_with($msg, 'ZAI_RATE_LIMITED:')) {
-                            $hadRateLimit = true;
-                            $batches[$batchIdx]['retry_count']++;
-                            if ($batches[$batchIdx]['retry_count'] <= $maxRetries) {
-                                $retryQueue[] = $batches[$batchIdx];
+                            // Backoff: double the dispatch interval and shed one
+                            // concurrency slot. Rate limits do NOT count toward
+                            // the hard abort limit (matches serial mode), so the
+                            // batch is re-queued at the tail rather than dropped.
+                            $windowHadRateLimit = true;
+                            $dispatchInterval = (int)min($ceilingInterval, $dispatchInterval * 2);
+                            $effectiveConcurrency = max(1, $effectiveConcurrency - 1);
+                            $cleanWindows = 0;
+                            $retryAfter = $this->parseRetryAfter($meta->responseHeaders ?? '');
+                            if ($retryAfter !== null) {
+                                $rateLimitUntil = max($rateLimitUntil, microtime(true) + $retryAfter);
+                            }
+                            echo sprintf(
+                                "  [429] batch %d-%d rate-limited; backoff interval→%ds, concurrency→%d%s\n",
+                                $batch['start'] + 1, $batch['end'],
+                                $dispatchInterval, $effectiveConcurrency,
+                                $retryAfter !== null ? " (Retry-After: {$retryAfter}s)" : ""
+                            );
+                            $batches[$batchIdx]['rate_limit_retries'] = ($batches[$batchIdx]['rate_limit_retries'] ?? 0) + 1;
+                            if ($batches[$batchIdx]['rate_limit_retries'] <= $maxRateLimitRetries) {
+                                $queue[] = $batches[$batchIdx];
                             } else {
                                 echo sprintf(
-                                    "  [X] batch %d-%d rate-limited after %d retries, giving up\n",
-                                    $batch['start'] + 1, $batch['end'], $maxRetries
+                                    "  [X] batch %d-%d still rate-limited after %d backoffs, giving up\n",
+                                    $batch['start'] + 1, $batch['end'], $maxRateLimitRetries
                                 );
                                 for ($j = $batch['start']; $j < $batch['end']; $j++) {
                                     $allMissing[] = $j;
@@ -706,7 +774,7 @@ class Translator
                                     $batches[$batchIdx]['retry_count'], $maxRetries,
                                     $msg
                                 );
-                                $retryQueue[] = $batches[$batchIdx];
+                                $queue[] = $batches[$batchIdx];
                             } else {
                                 echo sprintf(
                                     "  [X] batch %d-%d failed after %d retries: %s\n",
@@ -723,28 +791,31 @@ class Translator
 
                     curl_multi_remove_handle($mh, $ch);
                     curl_close($ch);
-
-                    if (!empty($queue)) {
-                        $nextBatch = array_shift($queue);
-                        $request = $this->client->buildRequest(
-                            $this->modelId, $systemPrompt,
-                            $nextBatch['user_message'], $nextBatch['options']
-                        );
-                        $meta = $this->client->createHandle($request);
-                        curl_multi_add_handle($mh, $meta->handle);
-                        $inFlight[$nextBatch['index']] = ['meta' => $meta, 'batch' => $nextBatch];
-                    }
                 }
-            } while (!empty($inFlight) || !empty($queue));
 
-            curl_multi_close($mh);
-
-            if ($hadRateLimit && !empty($retryQueue)) {
-                echo "  Rate limited, waiting 30s before retry...\n";
-                sleep(30);
+                // Adaptation: a clean window eases the pace back up and recovers
+                // concurrency toward the configured value. Slower to speed up
+                // (needs 2 clean windows, small steps) than to back off (instant),
+                // which keeps us from re-tripping the limit.
+                if ($windowHadSuccess && !$windowHadRateLimit) {
+                    $cleanWindows++;
+                    if ($cleanWindows >= 2 && ($dispatchInterval > $floorInterval || $effectiveConcurrency < $configuredConcurrency)) {
+                        $cleanWindows = 0;
+                        $step = (int)max(1, intdiv($dispatchInterval, 4));
+                        $newInterval = (int)max($floorInterval, $dispatchInterval - $step);
+                        $newConcurrency = min($configuredConcurrency, $effectiveConcurrency + 1);
+                        if ($newInterval !== $dispatchInterval || $newConcurrency !== $effectiveConcurrency) {
+                            $dispatchInterval = $newInterval;
+                            $effectiveConcurrency = $newConcurrency;
+                            echo "  [pace] easing up: interval→{$dispatchInterval}s, concurrency→{$effectiveConcurrency}\n";
+                        }
+                    }
+                } elseif ($windowHadRateLimit) {
+                    $cleanWindows = 0;
+                }
             }
-
-            $pending = $retryQueue;
+        } finally {
+            curl_multi_close($mh);
         }
 
         if (!empty($allMissing)) {
@@ -1339,6 +1410,50 @@ class Translator
             }
             sleep((int)$wait);
         }
+    }
+
+    /**
+     * Pacing helper for parallel mode: ensures at least $interval seconds pass
+     * between consecutive dispatches, and that any server-imposed Retry-After
+     * cooldown has elapsed. Keeps the dispatch rate (RPM) under control so
+     * concurrent batches don't blow the API limit.
+     */
+    private function paceParallelDispatch(float $lastDispatchTime, float $rateLimitUntil, int $interval): void
+    {
+        if ($rateLimitUntil > 0) {
+            $wait = (int)ceil($rateLimitUntil - microtime(true));
+            if ($wait > 0) {
+                sleep($wait);
+            }
+        }
+        if ($interval <= 0 || $lastDispatchTime <= 0) {
+            return;
+        }
+        $elapsed = microtime(true) - $lastDispatchTime;
+        if ($elapsed < $interval) {
+            sleep((int)ceil($interval - $elapsed));
+        }
+    }
+
+    /**
+     * Parse a Retry-After response header (seconds or HTTP-date) into seconds.
+     * Returns null when absent or unparseable.
+     */
+    private function parseRetryAfter(string $headers): ?int
+    {
+        if (!preg_match('/^retry-after:\s*(.+)$/im', $headers, $m)) {
+            return null;
+        }
+        $val = trim($m[1]);
+        if (ctype_digit($val)) {
+            return (int)$val;
+        }
+        $ts = strtotime($val);
+        if ($ts !== false) {
+            $delta = $ts - time();
+            return $delta > 0 ? $delta : 1;
+        }
+        return null;
     }
 
     private function textToLines(string $text): array

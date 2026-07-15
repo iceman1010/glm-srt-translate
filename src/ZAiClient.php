@@ -7,12 +7,14 @@ class ZAiClient
     private string $apiKey;
     private int $timeout;
     private ?string $logFile;
+    private string $baseUrl;
 
-    public function __construct(string $apiKey, int $timeout = 600, ?string $logFile = null)
+    public function __construct(string $apiKey, int $timeout = 600, ?string $logFile = null, string $baseUrl = 'https://api.z.ai/api/paas/v4/chat/completions')
     {
         $this->apiKey = $apiKey;
         $this->timeout = $timeout;
         $this->logFile = $logFile;
+        $this->baseUrl = $baseUrl;
     }
 
     public function buildRequest(
@@ -21,7 +23,7 @@ class ZAiClient
         string $userMessage,
         array $options = []
     ): array {
-        $url = 'https://api.z.ai/api/paas/v4/chat/completions';
+        $url = $this->baseUrl;
 
         $body = [
             'model' => $modelId,

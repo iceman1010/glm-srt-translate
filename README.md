@@ -115,7 +115,7 @@ Languages can be specified as:
 | `--list-models` | | List all available models and exit |
 | `--list-languages` | | List supported languages for a model |
 | `--setup-api` | | Configure API key interactively |
-| `--update` | | Self-update to latest release (PHAR only) |
+| `--update[=version]` | | Self-update to latest or a specific version (PHAR only) |
 | `--version` | | Show version |
 
 ### Parallel Mode
@@ -260,9 +260,10 @@ Checkpoints are auto-cleaned on successful completion. Stale checkpoints (>24h) 
 
 ```bash
 zai-srt-translate --update
+zai-srt-translate --update=1.8.0
 ```
 
-Checks GitHub for the latest release and replaces the PHAR in-place.
+Checks GitHub for the latest release (or a specific version) and replaces the PHAR in-place.
 
 ## Building from Source
 
