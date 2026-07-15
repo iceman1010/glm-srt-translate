@@ -83,10 +83,46 @@ if (empty($_ENV['ZAI_API_KEY'] ?? null)) {
     }
 }
 
+function getApiKeyDiagnostics(): string
+{
+    $lines = [];
+    $lines[] = "  User:        " . (function_exists('posix_getuid') ? posix_getUserName(posix_getuid()) : php_uname('n'));
+    $lines[] = "  UID:         " . (function_exists('posix_getuid') ? posix_getuid() : 'N/A');
+    $lines[] = "  HOME:        " . (getenv('HOME') ?: 'N/A');
+    $lines[] = "  cwd:         " . getcwd();
+
+    $envDir = str_starts_with(__DIR__, 'phar://') ? getcwd() : dirname(__DIR__);
+    $homeDir = getenv('HOME') ?: (function_exists('posix_getuid') ? posix_getpwuid(posix_getuid())['dir'] ?? '' : '');
+    $globalEnvDir = $homeDir . '/.zai-srt-translate';
+
+    $searchPaths = [
+        'Project .env'   => $envDir . '/.env',
+        'HOME/.env'      => $homeDir . '/.env',
+        '~/.zai-srt-translate/.env' => $globalEnvDir . '/.env',
+    ];
+
+    foreach ($searchPaths as $label => $path) {
+        if (!file_exists($path)) {
+            $lines[] = "  {$label}:   not found ({$path})";
+        } elseif (!is_readable($path)) {
+            $lines[] = "  {$label}:   exists but NOT readable (mode " . substr(sprintf('%o', fileperms($path)), -4) . ") — {$path}";
+        } else {
+            $content = file_get_contents($path);
+            $lines[] = "  {$label}:   readable (mode " . substr(sprintf('%o', fileperms($path)), -4) . ")"
+                . (str_contains($content, 'ZAI_API_KEY') ? " — contains ZAI_API_KEY" : " — does NOT contain ZAI_API_KEY")
+                . " — {$path}";
+        }
+    }
+
+    return implode("\n", $lines);
+}
+
 // Warn at startup if no API key (skip for version/update/setup-api)
 $skipKeyWarning = isset($options['version']) || isset($options['update']) || isset($options['setup-api']);
 if (empty($_ENV['ZAI_API_KEY'] ?? null) && !$skipKeyWarning) {
-    fwrite(STDERR, "WARNING: No ZAI_API_KEY found. Run 'zai-srt-translate --setup-api' to configure.\n\n");
+    fwrite(STDERR, "WARNING: No ZAI_API_KEY found.\n");
+    fwrite(STDERR, getApiKeyDiagnostics() . "\n");
+    fwrite(STDERR, "Run 'zai-srt-translate --setup-api' to configure.\n\n");
 }
 
 if (isset($options['version'])) {
@@ -307,7 +343,9 @@ if (isset($options['update'])) {
 }
 
 if (empty($_ENV['ZAI_API_KEY'] ?? null)) {
-    fwrite(STDERR, "Error: Z.AI API key not found. Run 'zai-srt-translate --setup-api' to configure.\n");
+    fwrite(STDERR, "Error: Z.AI API key not found.\n");
+    fwrite(STDERR, getApiKeyDiagnostics() . "\n");
+    fwrite(STDERR, "Run 'zai-srt-translate --setup-api' to configure.\n");
     exit(1);
 }
 
