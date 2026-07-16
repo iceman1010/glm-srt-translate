@@ -16,7 +16,7 @@ $longOpts = [
     'output::',
     'language:',
     'model::',
-    'batch-size::',
+    'batch-size:',
     'temperature::',
     'max-tokens::',
     'description::',

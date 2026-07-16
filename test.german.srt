@@ -1,0 +1,20 @@
+1
+00:00:01,000 --> 00:00:03,000
+Hallo, wie geht's?
+
+2
+00:00:04,000 --> 00:00:06,000
+Mir geht's gut, danke.
+
+3
+00:00:07,000 --> 00:00:10,000
+Was für ein schöner Tag!
+
+4
+00:00:11,000 --> 00:00:14,000
+Lass uns in den Park gehen
+und die Sonne genießen.
+
+5
+00:00:15,000 --> 00:00:18,000
+Bis später!

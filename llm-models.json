@@ -490,7 +490,7 @@
             "input_cost_per_million": 0.6,
             "output_cost_per_million": 2.2,
             "context_window": 128000,
-            "batch_size": 50,
+            "batch_size": 500,
             "reasoning": true,
             "strip_html": false,
             "languages": [
