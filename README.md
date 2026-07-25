@@ -111,6 +111,7 @@ Languages can be specified as:
 | `--parallel[=N]` | | Parallel batch mode: N concurrent requests (default: 3) |
 | `--resume` | | Resume from checkpoints (requires `--parallel`) |
 | `--restart` | | Start from beginning, ignore saved progress/checkpoints |
+| `--log-issues` | | Dump batch diagnostics when entries are skipped/missing/duplicate to `<input>.<model>.issues.log` (see [Troubleshooting](#troubleshooting)) |
 | `--debug` | `-v` | Show system prompt and first user message |
 | `--list-models` | | List all available models and exit |
 | `--list-languages` | | List supported languages for a model |
@@ -255,6 +256,26 @@ php translate.php -i movie.srt -l de -m glm-5.2 --parallel=3 --resume
 ```
 
 Checkpoints are auto-cleaned on successful completion. Stale checkpoints (>24h) are removed automatically.
+
+## Troubleshooting
+
+### Translated subtitles appear at the wrong timestamps (text/timestamp misalignment)
+
+If a translated file plays but the visible text doesn't match the timing of the original — e.g. the line shown at `00:10:04` is the translation of a line the original showed at `00:10:07` — the model has most likely **merged two or more adjacent cues** in a single batch response and renumbered the subsequent entries, causing a silent cumulative shift. The timestamps in the file are byte-identical to the source; only the text is misaligned.
+
+To diagnose, run with `--log-issues` (and ideally `--log` for the full request/response trail):
+
+```bash
+php translate.php -i movie.srt -l nl -m glm-5.2 --log-issues --log /tmp/apilog.txt
+```
+
+This writes `<input>.<model>.issues.log` whenever any batch comes back with skipped, missing, or duplicate entries. Each entry shows the expected index range, a side-by-side `expected-text` vs `returned-text` table, and the first 3000 chars of the raw model response — so you can pinpoint the exact cue where the model drifted.
+
+For the most complete forensic trail, combine `--log-issues` with `--log <file>` (logs every API request and response) and `-v` (prints the system prompt). Note that `--log-issues` only catches the *detectable* cases (missing/duplicate indices); a pure text-shift without index loss is not catchable without semantic comparison of source and translation.
+
+### Numbering gaps in the source file
+
+If the input SRT has a numbering gap (e.g. entry `377` is missing, the file jumps `376` → `378`), the output will be renumbered contiguously (`1, 2, 3, ...`). This is cosmetic — subtitle players schedule cues by timestamp, not by index — and is **not** a cause of drift. Pair the original and the translated file by timestamp value to verify alignment.
 
 ## Self-Update (PHAR only)
 

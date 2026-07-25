@@ -34,6 +34,7 @@ $longOpts = [
     'debug',
     'parallel::',
     'resume',
+    'log-issues',
 ];
 $options = getopt($shortOpts, $longOpts);
 
@@ -373,6 +374,8 @@ echo "  -L <file>   --log=<file>              Log full request/response to file 
 echo "              --parallel[=N]            Parallel batch mode: N concurrent requests (default: 3)\n";
 echo "                                        Checkpoints saved automatically for recovery\n";
 echo "              --resume                  Resume from checkpoints (requires --parallel)\n";
+echo "              --log-issues              Dump batch diagnostics when entries are skipped/missing/duplicate\n";
+echo "                                        to <input>.<model>.issues.log (forensic drift analysis)\n";
 echo "  -v          --debug                 Show system prompt and first user message\n";
 echo "\n";
 echo "Commands:\n";
@@ -463,6 +466,7 @@ try {
             ? ($options['parallel'] === false ? 3 : max(1, (int)$options['parallel']))
             : 0,
         'resume' => isset($options['resume']),
+        'log_issues' => isset($options['log-issues']),
         'base_url' => getenv('ZAI_BASE_URL') ?: null,
     ]);
 

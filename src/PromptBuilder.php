@@ -73,7 +73,17 @@ class PromptBuilder
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return "Translate to {$langName}. Output JSON: [{\"index\":\"0\",\"text\":\"...\"}]. Preserve every special character and punctuation mark exactly as written: em-dashes (—), en-dashes (–), ellipses (…), curly/typographic quotes, symbols, and diacritics. Do not add or drop punctuation. No comments.";
+        return "Translate movie subtitles to {$langName} — naturally and idiomatically, capturing meaning and tone over literal word-for-word. Keep translations concise. Preserve every special character and punctuation mark exactly as written: em-dashes (—), en-dashes (–), ellipses (…), curly/typographic quotes, symbols, numbers, and diacritics. Do not add or drop punctuation.\n\n" .
+            "OUTPUT FORMAT — strict JSON, no markdown fences, no comments:\n" .
+            "[{\"index\":\"0\",\"text\":\"...\"},{\"index\":\"1\",\"text\":\"...\"}]\n\n" .
+            "STRICT RULES (violations make the file unusable):\n" .
+            "1. Return EXACTLY one output object per input cue. The output array length MUST equal the input array length.\n" .
+            "2. NEVER merge, combine, split, reorder, or omit any cue. If two inputs share meaning, still emit them as two separate outputs.\n" .
+            "3. Each object's \"index\" must match an input index exactly. Do not invent, renumber, or shift indices.\n" .
+            "4. \"text\" must be the translation of the input cue at that same index — not a neighboring one.\n" .
+            "5. Output raw JSON only. No prose, no explanations, no ```json fences.\n\n" .
+            "Example input:  [{\"index\":\"0\",\"text\":\"Hello world.\"}]\n" .
+            "Example output: [{\"index\":\"0\",\"text\":\"Hallo wereld.\"}]";
     }
 
     public static function buildSimpleSystemPrompt(string $targetLanguage): string
@@ -96,6 +106,8 @@ class PromptBuilder
 
     public static function formatBatchAsJson(array $batch): string
     {
-        return json_encode($batch, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $count = count($batch);
+        $json = json_encode($batch, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return "Input array ({$count} cues, indices " . $batch[0]['index'] . "–" . end($batch)['index'] . "):\n{$json}\n\nReturn EXACTLY {$count} output objects, one per input cue, with matching indices. Do not merge or omit any cue.";
     }
 }

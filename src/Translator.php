@@ -47,6 +47,7 @@ class Translator
     private int $parallel = 0;
     private bool $resume = false;
     private ?string $checkpointDir = null;
+    private bool $logIssues = false;
 
     public function __construct(array $options)
     {
@@ -84,6 +85,7 @@ class Translator
         $this->restartMode = $options['restart'] ?? false;
         $this->parallel = max(0, (int)($options['parallel'] ?? 0));
         $this->resume = $options['resume'] ?? false;
+        $this->logIssues = $options['log_issues'] ?? false;
         if ($this->resume && $this->parallel === 0) {
             echo "Warning: --resume requires --parallel mode. Ignoring --resume.\n";
             $this->resume = false;
@@ -288,6 +290,51 @@ class Translator
                     echo "{$partialPrefix}{$issueStr} [stop: {$finishReason}, {$outputLen} chars].";
                 } else {
                     echo "{$partialPrefix} [stop: {$finishReason}, {$outputLen} chars].";
+                }
+
+                // DEBUG HOOK (problem_01): when validateBatch reports any issue
+                // (skipped/missing/duplicates), dump the input batch, the raw model
+                // response, and the parsed index->text mapping so we can see exactly
+                // where alignment drifted. Appended to <inputFile>.<modelKey>.issues.log
+                // Enabled only with --log-issues (off by default).
+                if (!empty($issues) && $this->logIssues) {
+                    $issuesFile = $this->inputFile . '.' . $this->modelKey . '.issues.log';
+                    $ts = date('H:i:s');
+                    $expectedIdxs = array_column($batch, 'index');
+                    $returnedIdxs = array_column($translatedLines, 'index');
+                    $inOutMap = [];
+                    $batchByText = [];
+                    foreach ($batch as $b) {
+                        $batchByText[(string)$b['index']] = $b['text'];
+                    }
+                    $outByText = [];
+                    foreach ($translatedLines as $l) {
+                        $outByText[(string)$l['index']] = $l['text'] ?? '';
+                    }
+                    $allIdxs = array_unique(array_merge(
+                        array_map('strval', $expectedIdxs),
+                        array_map('strval', $returnedIdxs)
+                    ));
+                    sort($allIdxs, SORT_NUMERIC);
+
+                    ob_start();
+                    echo "=== Batch i={$i} expectedCount={$validation['expectedCount']} validCount={$validation['validCount']} @ {$ts} ===\n";
+                    echo "issues: " . implode(', ', $issues) . "\n";
+                    echo "stop: {$finishReason}, outputLen: {$outputLen}\n";
+                    echo "idx | expected-text (input)                                | returned-text (parsed)\n";
+                    echo "----+--------------------------------------------------------+---------------------------------------------------------\n";
+                    foreach ($allIdxs as $idx) {
+                        $inTxt = mb_substr(str_replace(["\n", "\t"], [' ', ' '], $batchByText[$idx] ?? '<<MISSING>>'), 0, 54);
+                        $outTxt = mb_substr(str_replace(["\n", "\t"], [' ', ' '], $outByText[$idx] ?? '<<MISSING>>'), 0, 54);
+                        $flagIn = isset($batchByText[$idx]) ? ' ' : '-';
+                        $flagOut = isset($outByText[$idx]) ? ' ' : '-';
+                        echo sprintf("%4s | %s %-54s | %s %s\n", $idx, $flagIn, $inTxt, $flagOut, $outTxt);
+                    }
+                    echo "--- raw response (first 3000 chars) ---\n";
+                    echo mb_substr($responseText, 0, 3000) . "\n";
+                    echo "=== end batch i={$i} ===\n\n";
+                    file_put_contents($issuesFile, ob_get_clean(), FILE_APPEND);
+                    echo " (issues logged to " . basename($issuesFile) . ")";
                 }
 
                 $maxTranslatedIdx = $i;
@@ -1090,8 +1137,15 @@ class Translator
         $text = trim($text);
 
         $result = json_decode($text, true);
-        if (is_array($result) && $this->isListOfDicts($result)) {
-            return $result;
+        if (is_array($result)) {
+            // Accept wrapped shape {"count": N, "translations": [...]} per
+            // research doc rec #3. Unwrap before further validation.
+            if (isset($result['translations']) && is_array($result['translations'])) {
+                $result = $result['translations'];
+            }
+            if ($this->isListOfDicts($result)) {
+                return $result;
+            }
         }
 
         // GLM models occasionally emit invalid \escape sequences (e.g. \N instead
@@ -1109,8 +1163,13 @@ class Translator
         $text = trim($text);
 
         $result = json_decode($text, true);
-        if (is_array($result) && $this->isListOfDicts($result)) {
-            return $result;
+        if (is_array($result)) {
+            if (isset($result['translations']) && is_array($result['translations'])) {
+                $result = $result['translations'];
+            }
+            if ($this->isListOfDicts($result)) {
+                return $result;
+            }
         }
 
         $firstBracket = strpos($text, '[');
