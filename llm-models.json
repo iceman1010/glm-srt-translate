@@ -12,7 +12,7 @@
             "context_window": 1000000,
             "batch_size": 500,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "am",
@@ -132,7 +132,7 @@
             "context_window": 128000,
             "batch_size": 50,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "am",
@@ -252,7 +252,7 @@
             "context_window": 128000,
             "batch_size": 50,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "am",
@@ -372,7 +372,7 @@
             "context_window": 128000,
             "batch_size": 50,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "am",
@@ -492,7 +492,7 @@
             "context_window": 128000,
             "batch_size": 500,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "ar",
@@ -594,7 +594,7 @@
             "context_window": 128000,
             "batch_size": 50,
             "reasoning": true,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "ar",
@@ -697,7 +697,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -745,7 +745,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "af",
                 "ar",
@@ -848,7 +848,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -896,7 +896,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -944,7 +944,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -992,7 +992,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -1040,7 +1040,7 @@
             "batch_size": 50,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",
@@ -1088,7 +1088,7 @@
             "batch_size": 30,
             "reasoning": false,
             "no_think_suffix": false,
-            "strip_html": false,
+            "strip_html": true,
             "languages": [
                 "ar",
                 "bg",

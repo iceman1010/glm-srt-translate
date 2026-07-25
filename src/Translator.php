@@ -112,6 +112,7 @@ class Translator
         echo "Loading: {$this->inputFile}\n";
         $subtitles = Subtitles::loadFromFile($this->inputFile);
         $internalFormat = $subtitles->getInternalFormat();
+        $internalFormat = $this->restoreFormattingTags($internalFormat, file_get_contents($this->inputFile));
 
         $total = count($internalFormat);
         echo "Subtitles loaded: {$total}\n";
@@ -1493,6 +1494,58 @@ class Translator
         }
 
         return implode('', $openTags) . $translatedText . implode('', $closeTags);
+    }
+
+    /**
+     * The subtitle parsing library (mantas-done/subtitles) strips HTML formatting
+     * tags (<i>, <b>, <u>, <font>, ...) at parse time via strip_tags(). This reads
+     * the original file and re-injects those tags into the internal format so the
+     * extract/strip/re-wrap machinery below can preserve them through translation.
+     *
+     * Matching is content-based: each raw tagged line is keyed by its stripped,
+     * trimmed form (which is exactly what the parser stored) and consumed in FIFO
+     * order so duplicate captions resolve in document order. Safe for any format:
+     * lines without HTML tags are ignored, so ASS ({\\i1} style) and plain files
+     * are unaffected.
+     */
+    private function restoreFormattingTags(array $internalFormat, string $rawContent): array
+    {
+        $rawLines = preg_split('/\r\n|\r|\n/', $rawContent);
+        if ($rawLines === false) {
+            return $internalFormat;
+        }
+
+        $taggedMap = [];
+        foreach ($rawLines as $line) {
+            if (!preg_match('/<\/?[a-zA-Z][^>]*>/', $line)) {
+                continue;
+            }
+            $tagged = trim($line);
+            $stripped = trim(strip_tags($line));
+            if ($tagged === '' || $tagged === $stripped) {
+                continue;
+            }
+            $taggedMap[$stripped][] = $tagged;
+        }
+
+        if (empty($taggedMap)) {
+            return $internalFormat;
+        }
+
+        foreach ($internalFormat as &$block) {
+            if (empty($block['lines'])) {
+                continue;
+            }
+            foreach ($block['lines'] as $li => $line) {
+                $key = trim($line);
+                if (isset($taggedMap[$key]) && !empty($taggedMap[$key])) {
+                    $block['lines'][$li] = array_shift($taggedMap[$key]);
+                }
+            }
+        }
+        unset($block);
+
+        return $internalFormat;
     }
 
     private function estimateTokens(string $text): int

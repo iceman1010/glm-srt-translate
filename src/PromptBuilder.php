@@ -73,14 +73,14 @@ class PromptBuilder
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return "Translate to {$langName}. Output JSON: [{\"index\":\"0\",\"text\":\"...\"}]. Keep <i>, <b> tags. No comments.";
+        return "Translate to {$langName}. Output JSON: [{\"index\":\"0\",\"text\":\"...\"}]. Preserve every special character and punctuation mark exactly as written: em-dashes (—), en-dashes (–), ellipses (…), curly/typographic quotes, symbols, and diacritics. Do not add or drop punctuation. No comments.";
     }
 
     public static function buildSimpleSystemPrompt(string $targetLanguage): string
     {
         $langName = self::getLanguageName($targetLanguage);
 
-        return "Translate to {$langName}. These are movie subtitles — translate naturally and idiomatically, capturing meaning and tone over literal word-for-word. Keep translations concise. Keep <i>, <b> tags. No comments.\n\nExample:\n[0]:\noriginal text\n\nOutput:\n[0]:\ntranslation";
+        return "Translate to {$langName}. These are movie subtitles — translate naturally and idiomatically, capturing meaning and tone over literal word-for-word. Keep translations concise. Preserve every special character and punctuation mark exactly as written: em-dashes (—), en-dashes (–), ellipses (…), curly/typographic quotes, symbols, numbers, and diacritics. Do not add or drop punctuation. No comments.\n\nExample:\n[0]:\noriginal text\n\nOutput:\n[0]:\ntranslation";
     }
 
     public static function formatBatchAsSimple(array $batch): string
