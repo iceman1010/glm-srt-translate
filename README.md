@@ -1,5 +1,15 @@
 # zai-srt-translate
 
+> ## ⚠️ Project discontinued
+>
+> This project is **no longer maintained**. Extensive testing concluded that GLM models are not usable for production subtitle translation.
+>
+> **Why it failed:** Subtitle cues are segmented by timing and reading speed, not by grammar — consecutive cues often form a single sentence split across 2–3 cues. A translator model deterministically merges such cues, because splitting a sentence across separate output units is linguistically unnatural. The result is translated text silently shifted against the original timestamps. Every separator strategy (`|||`, indexed markers, newlines, paragraphs), prompt instruction, and retry/fallback scheme was tested; none made batch translation reliable, and retries always hit the same merge. The failure is structural, not stochastic.
+>
+> The only known fix is schema-enforced structured output (index-keyed JSON constrained at the token level, e.g. OpenAI's `json_schema strict` or Gemini's `response_schema`) — which the Z.AI API does not offer. Its `json_object` mode guarantees valid JSON but leaves the schema prompt-guided, which is not enough.
+>
+> **Successor:** `llm-srt-translate` — the same tooling generalized to any OpenAI-compatible API (via a LiteLLM proxy), using schema-enforced structured output where the upstream model supports it.
+
 A PHP CLI tool that uses [Z.AI](https://z.ai) LLMs (GLM series) to translate subtitle files (SRT, VTT, ASS, and more) into 100+ languages.
 
 This is a port of [cf-llm-srt-translator](https://github.com/iceman1010/cf-llm-srt-translator), adapted from Cloudflare Workers AI to the Z.AI API platform while preserving the same prompt logic, batch processing, and error handling approach.
